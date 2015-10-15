@@ -23,6 +23,7 @@ class PreProcess:
         self.dst_dir = dst_dir
         self.master_dir = dst_dir + '/master'
         self.initialize_dirs()
+        self.initialize_instrument()
         iraf.noao.imred(_doprint=0)
         iraf.noao.imred.ccdred(_doprint=0)
         iraf.dataio(_doprint=0)
@@ -42,8 +43,26 @@ class PreProcess:
         self.mkdir(self.dst_dir)
         self.mkdir(self.master_dir)
 
+    def initialize_instrument(self):
+        inst_file_name = 'cp.dat'
+        if not os.path.exists(inst_file_name):
+            with open(inst_file, 'w+') as inst_file:
+                inst_file.write('subset          FILTER\n\n')
+                inst_file.write('darktime        EXPTIME\n\n')
+                inst_file.write('\'Dark Frame\'    dark\n')
+                inst_file.write('\'Bias Frame\'    zero\n')
+                inst_file.write('\'Light Frame\'   object\n')
+                inst_file.write('\'Flat Field\'    flat\n')
+            inst_file.close()
+        iraf.noao.imred.ccdred.setinst(
+            instrument='cp',
+            review='no',
+            mode='h',
+            dir='',
+            site=''
+        )
+
     def convert_to_fits(self):
-        iraf.noao.imred.ccdred.setinst(instrument='cp', review='no', mode='h')
         iraf.dataio.rfits(
             fits_file = self.src_dir + '/*.FIT',
             file_list = '',
