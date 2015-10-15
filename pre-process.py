@@ -46,14 +46,13 @@ class PreProcess:
     def initialize_instrument(self):
         inst_file_name = 'cp.dat'
         if not os.path.exists(inst_file_name):
-            with open(inst_file, 'w+') as inst_file:
+            with open(inst_file_name, 'w+') as inst_file:
                 inst_file.write('subset          FILTER\n\n')
                 inst_file.write('darktime        EXPTIME\n\n')
                 inst_file.write('\'Dark Frame\'    dark\n')
                 inst_file.write('\'Bias Frame\'    zero\n')
                 inst_file.write('\'Light Frame\'   object\n')
                 inst_file.write('\'Flat Field\'    flat\n')
-            inst_file.close()
         iraf.noao.imred.ccdred.setinst(
             instrument='cp',
             review='no',
