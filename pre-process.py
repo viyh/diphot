@@ -8,7 +8,7 @@
 # to prep FITS files for science use.
 #
 
-import os, sys, shutil
+import os, sys, shutil, argparse
 from pyraf import iraf
 
 class PreProcess:
@@ -228,6 +228,15 @@ class PreProcess:
             flat = self.master_dir + '/masterflat*',
         )
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Pre-process FITS cubes')
+    parser.add_argument('--src_dir', type=str, default='data',
+        help='source directory of raw FITS files')
+    parser.add_argument('--dst_dir', type=str, default='output',
+        help='destination directory of output processed and master FITS files')
+    return parser.parse_args()
+
 if __name__ == "__main__":
-    p = PreProcess()
+    args = parse_args()
+    p = PreProcess(src_dir=args.src_dir, dst_dir=args.dst_dir)
     p.auto_prep()
