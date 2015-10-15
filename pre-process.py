@@ -63,7 +63,7 @@ class PreProcess:
 
     def convert_to_fits(self):
         iraf.dataio.rfits(
-            fits_file = self.src_dir + '/*.FIT',
+            fits_file = self.src_dir + '/*',
             file_list = '',
             iraf_file = self.dst_dir + '/t',
             make_image = 'yes',
