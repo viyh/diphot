@@ -8,12 +8,9 @@ The script will expect all of your FITS cubes to be in a source directory, and w
 
 To run the code:
 
-`python pre-process.py <--src_dir=data> <--dst_dir=output>`
+`pre-process.py [-h] [--src_dir SRC_DIR] [--dst_dir DST_DIR]`
 
-* --src_dir
-Default: data
-This is the source directory with your raw FITS files. These will not be modified.
-
-* --dst_dir
-Default: output
-The destination directory which will contain the master bias, dark, flat, and processed FITS files once the script has been run.
+    optional arguments:
+      -h, --help         show this help message and exit
+      --src_dir SRC_DIR  source directory of raw FITS files
+      --dst_dir DST_DIR  destination directory for processed and master FITS files

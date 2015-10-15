@@ -233,7 +233,7 @@ def parse_args():
     parser.add_argument('--src_dir', type=str, default='data',
         help='source directory of raw FITS files')
     parser.add_argument('--dst_dir', type=str, default='output',
-        help='destination directory of output processed and master FITS files')
+        help='destination directory for processed and master FITS files')
     return parser.parse_args()
 
 if __name__ == "__main__":
