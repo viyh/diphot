@@ -23,16 +23,11 @@ The txdump output needs to have the following columns in this order:
 
 These settings at the top of the code can adjust the parser:
 
-* px_threshold
-    The maximum pixel change (in the x or y direction) between images for a star to be considered "the same".
-* mag_threshold
-    The maximum magnitude change between images for the star to be considered "the same"
-* skip_px_threshold
-    The maximum pixel change (in the x or y direction) between images for a star to be considered "different".
-* skip_mag_threshold
-    The maximum magnitude change between images for a star to be considered "different".
-* assume
-    True or False. This can force the script to assume stars between the px_threshold and the skip_px_threshold, or the mag_threshold and the skip_mag_threshold are always the same or never the same stars. If this is not set (or set to None), all stars between these values will be confirmed via the user.
+* px_threshold (int) - The maximum pixel change (in the x or y direction) between images for a star to be considered "the same".
+* mag_threshold (int) - The maximum magnitude change between images for the star to be considered "the same"
+* skip_px_threshold (int) - The maximum pixel change (in the x or y direction) between images for a star to be considered "different".
+* skip_mag_threshold (int) - The maximum magnitude change between images for a star to be considered "different".
+* assume (True or False) - This can force the script to assume stars between the px_threshold and the skip_px_threshold, or the mag_threshold and the skip_mag_threshold are always the same or never the same stars. If this is not set (or set to None), all stars between these values will be confirmed via the user.
 
 The script outputs a "data.csv" file with the cleaned data.
 
