@@ -1,26 +1,18 @@
 #!/usr/bin/python
 
 #
-# PyRAF FITS reduction script - 2016-01-17
-# https://github.com/viyh/pyraf-scripts
+# DiPhot: Curve of Growth - 2016-01-20
+# https://github.com/viyh/diphot
 #
-# PyRAF script to create master zero, dark, and flat, and apply them to a set of FITS cubes
-# to prep FITS files for science use.
+# Create master zero, dark, and flat images, and apply them to a set of FITS cubes
+# to prep for science use.
 #
 
 import os, sys, shutil, argparse
 from pyraf import iraf
-import logging
+import diphot
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console = logging.StreamHandler()
-console.setFormatter(formatter)
-handler = logging.FileHandler('reduce.log')
-handler.setFormatter(formatter)
-logger.addHandler(console)
-logger.addHandler(handler)
+logger = diphot.logger_init('reduce')
 
 class Reduce:
     def __init__(self, src_dir='data', dst_dir='output', dry_run=False):
@@ -37,7 +29,7 @@ class Reduce:
         self.filetypes = ['zero', 'dark', 'flat', 'object']
         self.dry_run = dry_run
         self.initialize_dirs()
-        self.initialize_instrument()
+        diphot.initialize_instrument()
 
     def auto_reduce(self):
         logger.info('Creating IRAF FITS images...')
@@ -50,43 +42,15 @@ class Reduce:
         self.create_flat()
         self.apply_flat()
 
-    def mkdir(self, dirname):
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
-        else:
-            answer = raw_input("Directory '{}' already exists. Delete all files? (y/N) ".format(dirname)).lower() == 'y'
-            if answer:
-                shutil.rmtree(dirname, ignore_errors=True)
-
     def initialize_dirs(self):
         if not os.path.exists(self.src_dir):
             logger.info("Source directory '{}' does not exist!".format(self.src_dir))
             sys.exit(1)
-        self.mkdir(self.dst_dir)
-        self.mkdir(self.master_dir)
-        self.mkdir(self.tmp_dir)
+        diphot.mkdir(self.dst_dir)
+        diphot.mkdir(self.master_dir)
+        diphot.mkdir(self.tmp_dir)
         for filetype in self.filetypes:
-            self.mkdir(self.dst_dir + '/' + filetype)
-
-    def initialize_instrument(self):
-        inst_file_name = 'cp.dat'
-        iraf.noao.imred(_doprint=0)
-        iraf.noao.imred.ccdred(_doprint=0)
-        if not os.path.exists(inst_file_name):
-            with open(inst_file_name, 'w+') as inst_file:
-                inst_file.write('subset          FILTER\n\n')
-                inst_file.write('darktime        EXPTIME\n\n')
-                inst_file.write('\'Dark Frame\'    dark\n')
-                inst_file.write('\'Bias Frame\'    zero\n')
-                inst_file.write('\'Light Frame\'   object\n')
-                inst_file.write('\'Flat Field\'    flat\n')
-        iraf.noao.imred.ccdred.setinst(
-            instrument='cp',
-            review='no',
-            mode='h',
-            dir='',
-            site=''
-        )
+            diphot.mkdir(self.dst_dir + '/' + filetype)
 
     def convert_to_fits(self):
         iraf.dataio(_doprint=0)
@@ -106,24 +70,11 @@ class Reduce:
             Stderr='dev$null'
         )
 
-    def get_files_of_type(self, filetype):
-        iraf.noao(_doprint=0)
-        return iraf.noao.imred.ccdred.ccdlist(
-            images = self.dst_dir + '/tmp/*.fits',
-            ccdtype = filetype,
-            names = 'yes',
-            Stdout=1
-        )
-
-    def move_files(self, files, dst_dir):
-        for f in files:
-            shutil.move(f, dst_dir)
-
     def organize_files(self):
         for filetype in self.filetypes:
             logger.info("Moving {} files to {}".format(filetype, self.dst_dir + '/' + filetype))
-            files = self.get_files_of_type(filetype)
-            self.move_files(files, self.dst_dir + '/' + filetype)
+            files = diphot.get_files_of_type(self.dst_dir + '/tmp', filetype)
+            diphot.move_files(files, self.dst_dir + '/' + filetype)
 
     def create_zero(self):
         """Creates a master zero image from a set of zero FITS cubes."""

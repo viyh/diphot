@@ -1,6 +1,12 @@
 #!/usr/bin/python
 
-# Expects a dump file created with PyRAF's txdump tool.
+#
+# DiPhot: Curve of Growth - 2016-01-20
+# https://github.com/viyh/diphot
+#
+# Parse a dump file and attempt to align stars by ID
+#
+
 # The following columns need to be dumped:
 #    IMAGE,ID,XCENTER,YCENTER,OTIME,MAG,MERR
 
