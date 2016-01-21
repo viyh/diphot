@@ -1,10 +1,10 @@
 #!/usr/bin/python
 
 #
-# PyRAF FITS pre-processing script - 2015-10-15
+# PyRAF FITS reduction script - 2016-01-17
 # https://github.com/viyh/pyraf-scripts
 #
-# PyRAF script to create master bias, dark, and flat, and apply them to a set of FITS cubes
+# PyRAF script to create master zero, dark, and flat, and apply them to a set of FITS cubes
 # to prep FITS files for science use.
 #
 
@@ -17,13 +17,13 @@ logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 console = logging.StreamHandler()
 console.setFormatter(formatter)
-handler = logging.FileHandler('pre-process.log')
+handler = logging.FileHandler('reduce.log')
 handler.setFormatter(formatter)
 logger.addHandler(console)
 logger.addHandler(handler)
 
-class PreProcess:
-    def __init__(self, src_dir='data', dst_dir='output'):
+class Reduce:
+    def __init__(self, src_dir='data', dst_dir='output', dry_run=False):
         """
         @param src_dir: source directory of original FITS cubes
         @type src_dir: str
@@ -33,12 +33,16 @@ class PreProcess:
         self.src_dir = src_dir
         self.dst_dir = dst_dir
         self.master_dir = dst_dir + '/master'
+        self.tmp_dir = dst_dir + '/tmp'
+        self.filetypes = ['zero', 'dark', 'flat', 'object']
+        self.dry_run = dry_run
         self.initialize_dirs()
         self.initialize_instrument()
 
-    def auto_prep(self):
+    def auto_reduce(self):
         logger.info('Creating IRAF FITS images...')
-        # self.convert_to_fits()
+        self.convert_to_fits()
+        self.organize_files()
         self.create_zero()
         self.apply_zero()
         self.create_dark()
@@ -60,6 +64,9 @@ class PreProcess:
             sys.exit(1)
         self.mkdir(self.dst_dir)
         self.mkdir(self.master_dir)
+        self.mkdir(self.tmp_dir)
+        for filetype in self.filetypes:
+            self.mkdir(self.dst_dir + '/' + filetype)
 
     def initialize_instrument(self):
         inst_file_name = 'cp.dat'
@@ -86,7 +93,7 @@ class PreProcess:
         iraf.dataio.rfits(
             fits_file = self.src_dir + '/*',
             file_list = '',
-            iraf_file = self.dst_dir + '/t',
+            iraf_file = self.tmp_dir + '/',
             make_image = 'yes',
             long_header = 'no',
             short_header = 'yes',
@@ -99,16 +106,35 @@ class PreProcess:
             Stderr='dev$null'
         )
 
+    def get_files_of_type(self, filetype):
+        iraf.noao(_doprint=0)
+        return iraf.noao.imred.ccdred.ccdlist(
+            images = self.dst_dir + '/tmp/*.fits',
+            ccdtype = filetype,
+            names = 'yes',
+            Stdout=1
+        )
+
+    def move_files(self, files, dst_dir):
+        for f in files:
+            shutil.move(f, dst_dir)
+
+    def organize_files(self):
+        for filetype in self.filetypes:
+            logger.info("Moving {} files to {}".format(filetype, self.dst_dir + '/' + filetype))
+            files = self.get_files_of_type(filetype)
+            self.move_files(files, self.dst_dir + '/' + filetype)
+
     def create_zero(self):
-        """Creates a master bias image from a set of bias FITS cubes."""
-        logger.info('Creating master bias...')
+        """Creates a master zero image from a set of zero FITS cubes."""
+        logger.info('Creating master zero...')
         iraf.noao.imred(_doprint=0)
         iraf.noao.imred.ccdred(_doprint=0)
         iraf.noao.imred.ccdred.ccdproc.unlearn()
         iraf.noao.imred.ccdred.zerocombine.unlearn()
         iraf.noao.imred.ccdred.zerocombine(
-            input = self.dst_dir + '/bias/t*.fits',
-            output = self.master_dir + '/masterbias',
+            input = self.dst_dir + '/zero/*.fits',
+            output = self.master_dir + '/masterzero',
             combine = 'average',
             reject = 'minmax',
             ccdtype = 'zero',
@@ -121,8 +147,8 @@ class PreProcess:
         )
 
     def apply_zero(self):
-        """Apply master bias image to a set of FITS cubes."""
-        logger.info('Applying master bias to data files.')
+        """Apply master zero image to a set of FITS cubes."""
+        logger.info('Applying master zero to data files.')
         iraf.noao.imred(_doprint=0)
         iraf.noao.imred.ccdred(_doprint=0)
         iraf.noao.imred.ccdred.ccdproc.unlearn()
@@ -144,17 +170,16 @@ class PreProcess:
         iraf.noao.imred.ccdred.ccdproc.fixfile = ''
         iraf.noao.imred.ccdred.ccdproc.biassec = ''
         iraf.noao.imred.ccdred.ccdproc.trimsec = ''
-        iraf.noao.imred.ccdred.ccdproc.zero = self.master_dir + '/masterbias'
+        iraf.noao.imred.ccdred.ccdproc.zero = self.master_dir + '/masterzero'
         iraf.noao.imred.ccdred.ccdproc.dark = ''
         iraf.noao.imred.ccdred.ccdproc.flat = ''
 
         filemasks = [
-            self.dst_dir + '/dark/t*.fits',
-            self.dst_dir + '/flat/t*.fits',
-            self.dst_dir + '/science/t*.fits'
+            self.dst_dir + '/dark/*.fits',
+            self.dst_dir + '/flat/*.fits',
+            self.dst_dir + '/object/*.fits'
         ]
         for filemask in filemasks:
-            print filemask
             iraf.noao.imred.ccdred.ccdproc(images=filemask)
 
     def create_dark(self):
@@ -182,11 +207,11 @@ class PreProcess:
         iraf.noao.imred.ccdred.ccdproc.fixfile = ''
         iraf.noao.imred.ccdred.ccdproc.biassec = ''
         iraf.noao.imred.ccdred.ccdproc.trimsec = ''
-        iraf.noao.imred.ccdred.ccdproc.zero = self.master_dir + '/masterbias'
+        iraf.noao.imred.ccdred.ccdproc.zero = self.master_dir + '/masterzero'
         iraf.noao.imred.ccdred.ccdproc.dark = ''
         iraf.noao.imred.ccdred.ccdproc.flat = ''
         iraf.noao.imred.ccdred.darkcombine(
-            input = self.dst_dir + '/dark/t*.fits',
+            input = self.dst_dir + '/dark/*.fits',
             output = self.master_dir + '/masterdark',
             combine = 'median',
             reject = 'minmax',
@@ -228,8 +253,8 @@ class PreProcess:
         iraf.noao.imred.ccdred.ccdproc.flat = ''
 
         filemasks = [
-            self.dst_dir + '/flat/t*.fits',
-            self.dst_dir + '/science/t*.fits'
+            self.dst_dir + '/flat/*.fits',
+            self.dst_dir + '/object/*.fits'
         ]
         for filemask in filemasks:
             iraf.noao.imred.ccdred.ccdproc(images=filemask)
@@ -263,7 +288,7 @@ class PreProcess:
         iraf.noao.imred.ccdred.ccdproc.dark = ''
         iraf.noao.imred.ccdred.ccdproc.flat = ''
         iraf.noao.imred.ccdred.flatcombine(
-            input = self.dst_dir + '/flat/t*.fits',
+            input = self.dst_dir + '/flat/*.fits',
             output = self.master_dir + '/masterflat',
             combine = 'median',
             reject = 'avsigclip',
@@ -307,10 +332,9 @@ class PreProcess:
         iraf.noao.imred.ccdred.ccdproc.flat = self.master_dir + '/masterflat*'
 
         filemasks = [
-            self.dst_dir + '/science/t*.fits'
+            self.dst_dir + '/object/*.fits'
         ]
         for filemask in filemasks:
-            print filemask
             iraf.noao.imred.ccdred.ccdproc(images=filemask)
 
 def parse_args():
@@ -319,11 +343,13 @@ def parse_args():
         help='source directory of raw FITS files')
     parser.add_argument('--dst_dir', type=str, default='output',
         help='destination directory for processed and master FITS files')
+    parser.add_argument('--dry_run', action='store_true',
+        help='don\'t actually do anything (for testing)')
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
     os.environ.get('iraf','/usr/local/iraf')
     os.environ.get('IRAFARCH','linux64')
-    p = PreProcess(src_dir=args.src_dir, dst_dir=args.dst_dir)
-    p.auto_prep()
+    p = Reduce(src_dir=args.src_dir, dst_dir=args.dst_dir, dry_run=args.dry_run)
+    p.auto_reduce()
