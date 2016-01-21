@@ -102,55 +102,6 @@ class GrowthCurve:
             logger.info('Creating curve of growth graph image: {}'.format(self.graph_file))
             plt.savefig(self.graph_file)
 
-    def run_daofind(self, filename):
-        iraf.noao.digiphot(_doprint=0)
-        iraf.noao.digiphot.apphot(_doprint=0)
-        iraf.noao.digiphot.apphot.daofind(
-            image = filename,
-            output = self.src_dir + '/tmp/',
-            starmap = '',
-            skymap = '',
-            datapars = '',
-            findpars = '',
-            boundary = 'nearest',
-            constant = 0,
-            interactive = 'no',
-            icommands = '',
-            gcommands = '',
-            verify = 'no'
-        )
-
-    def get_txdump(self, filemask, fields):
-        iraf.noao.digiphot(_doprint=0)
-        iraf.noao.digiphot.ptools(_doprint=0)
-        return iraf.noao.digiphot.ptools.txdump(
-            textfiles = filemask,
-            fields = fields,
-            expr = 'yes',
-            headers = 'no',
-            parameters = 'yes',
-            Stdout=1
-        )
-
-    def run_phot(self, filemask):
-        iraf.noao.digiphot(_doprint=0)
-        iraf.noao.digiphot.apphot.phot(
-            image = filemask,
-            coords = self.src_dir + '/tmp/',
-            output = self.src_dir + '/tmp/',
-            skyfile = '',
-            plotfile = '',
-            datapars = '',
-            centerpars = '',
-            fitskypars = '',
-            photpars = '',
-            interactive = 'no',
-            radplots = 'no',
-            icommands = '',
-            gcommands = '',
-            verify = 'no'
-        )
-
     def run_psfmeasure(self, filename, coords):
         tmp_file = tempfile.NamedTemporaryFile(delete=False)
         for coord in coords:
@@ -181,10 +132,10 @@ class GrowthCurve:
 
         files = diphot.get_files_of_type(self.src_dir + '/object', 'object')
         file_num = int(len(files) / 2)
-        self.run_daofind(files[file_num])
+        diphot.run_daofind(self.src_dir, files[file_num])
 
         coord_files = self.src_dir + '/tmp/' + os.path.basename(files[file_num]) + '.coo.1'
-        coord_dump = self.get_txdump(coord_files, 'ID,XCENTER,YCENTER')
+        coord_dump = diphot.get_txdump(coord_files, 'ID,XCENTER,YCENTER')
         coords = self.parse_txdump(coord_dump, ['id', 'x', 'y'])
 
         fwhm = self.run_psfmeasure(files[file_num], coords)
@@ -193,10 +144,10 @@ class GrowthCurve:
 
         for i in range(1, 50):
             iraf.noao.digiphot.apphot.photpars.setParam('apertures', i)
-            self.run_phot(files[file_num])
+            diphot.run_phot(self.src_dir, files[file_num])
 
         mag_files = self.src_dir + '/tmp/' + os.path.basename(files[file_num]) + '.mag.*'
-        mag_dump = self.get_txdump(mag_files, 'ID,RAPERT,MAG,MERR,FLUX')
+        mag_dump = diphot.get_txdump(mag_files, 'ID,RAPERT,MAG,MERR,FLUX')
         mags = self.parse_txdump(mag_dump, ['id', 'aperture', 'mag', 'merr', 'flux'])
 
         max_snr_aperture, x, y1, y2 = self.get_data_points(mags)

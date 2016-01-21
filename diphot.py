@@ -23,6 +23,28 @@ def logger_init(log_name):
     logger.addHandler(handler)
     return logger
 
+def cleanup_tmp(src_dir):
+    files = glob.glob(src_dir + '/tmp/*')
+    for f in files:
+        os.remove(f)
+
+def write_file_from_array(filename, contents):
+    with open(filename,'w') as f:
+        f.write("\n".join(contents))
+        f.write("\n")
+
+def move_files(files, dst_dir):
+    for f in files:
+        shutil.move(f, dst_dir)
+
+def mkdir(dirname):
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+    else:
+        answer = raw_input("Directory '{}' already exists. Delete all files? (y/N) ".format(dirname)).lower() == 'y'
+        if answer:
+            shutil.rmtree(dirname, ignore_errors=True)
+
 def initialize_instrument():
     inst_file_name = 'cp.dat'
     iraf.noao.imred(_doprint=0)
@@ -51,23 +73,6 @@ def get_files_of_type(src_dir, filetype):
         names = 'yes',
         Stdout=1
     )
-
-def cleanup_tmp(src_dir):
-    files = glob.glob(src_dir + '/tmp/*')
-    for f in files:
-        os.remove(f)
-
-def move_files(files, dst_dir):
-    for f in files:
-        shutil.move(f, dst_dir)
-
-def mkdir(dirname):
-    if not os.path.exists(dirname):
-        os.makedirs(dirname)
-    else:
-        answer = raw_input("Directory '{}' already exists. Delete all files? (y/N) ".format(dirname)).lower() == 'y'
-        if answer:
-            shutil.rmtree(dirname, ignore_errors=True)
 
 def set_datapars(params=[]):
     """Set datapars parameters for photometry."""
@@ -158,3 +163,49 @@ def set_findpars(params=[]):
     iraf.noao.digiphot.apphot.findpars.setParam('mkdetections', 'yes')
     for param in params:
         iraf.noao.digiphot.apphot.findpars.setParam(param[0], param[1])
+
+def get_txdump(filemask, fields):
+    iraf.noao.digiphot.ptools(_doprint=0)
+    return iraf.noao.digiphot.ptools.txdump(
+        textfiles = filemask,
+        fields = fields,
+        expr = 'yes',
+        headers = 'no',
+        parameters = 'yes',
+        Stdout=1
+    )
+
+def run_daofind(src_dir, filename):
+    iraf.noao.digiphot.apphot(_doprint=0)
+    iraf.noao.digiphot.apphot.daofind(
+        image = filename,
+        output = src_dir + '/tmp/default',
+        starmap = '',
+        skymap = '',
+        datapars = '',
+        findpars = '',
+        boundary = 'nearest',
+        constant = 0,
+        interactive = 'no',
+        icommands = '',
+        gcommands = '',
+        verify = 'no'
+    )
+
+def run_phot(src_dir, filemask):
+    iraf.noao.digiphot.apphot.phot(
+        image = filemask,
+        coords = src_dir + '/tmp/default',
+        output = src_dir + '/tmp/default',
+        skyfile = '',
+        plotfile = '',
+        datapars = '',
+        centerpars = '',
+        fitskypars = '',
+        photpars = '',
+        interactive = 'no',
+        radplots = 'no',
+        icommands = '',
+        gcommands = '',
+        verify = 'no'
+    )
