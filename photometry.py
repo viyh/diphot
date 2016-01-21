@@ -18,7 +18,7 @@ import diphot
 logger = diphot.logger_init('photometry')
 
 class Photometry:
-    def __init__(self, src_dir='data', fwhm='8', aperture='15', target_id=None):
+    def __init__(self, src_dir='data', fwhm='8', aperture='15'):
         """
         @param src_dir: source directory of reduced FITS cubes
         @type src_dir: str
@@ -27,12 +27,11 @@ class Photometry:
         diphot.initialize_instrument()
         self.fwhm = fwhm
         self.aperture = aperture
-        self.target_id = target_id
 
     def run_photometry(self):
         logger.info('Creating light curve...')
         diphot.set_datapars(params=[('fwhmpsf', self.fwhm)])
-        duphot.set_centerpars(params=[('cbox', self.fwhm * 2.0)])
+        diphot.set_centerpars(params=[('cbox', self.fwhm * 2.0)])
         diphot.set_photpars(params=[('apertures', self.aperture)])
         diphot.set_fitskypars()
         diphot.set_findpars()
@@ -119,13 +118,11 @@ def parse_args():
         help='FWHM')
     parser.add_argument('--aperture', type=float, default=15.0,
         help='aperture size')
-    parser.add_argument('--id', type=int,
-        help='star number of the primary target from the coordinate file')
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
     os.environ.get('iraf','/usr/local/iraf')
     os.environ.get('IRAFARCH','linux64')
-    l = Photometry(src_dir=args.src_dir, fwhm=args.fwhm, aperture=args.aperture, target_id=args.id)
+    l = Photometry(src_dir=args.src_dir, fwhm=args.fwhm, aperture=args.aperture)
     l.run_photometry()

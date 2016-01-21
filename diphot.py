@@ -69,7 +69,7 @@ def mkdir(dirname):
         if answer:
             shutil.rmtree(dirname, ignore_errors=True)
 
-def set_datapars(params=None):
+def set_datapars(params=[]):
     """Set datapars parameters for photometry."""
     iraf.noao.digiphot(_doprint=0)
     iraf.noao.digiphot.apphot(_doprint=0)
@@ -95,7 +95,7 @@ def set_datapars(params=None):
     for param in params:
         iraf.noao.digiphot.apphot.datapars.setParam(param[0], param[1])
 
-def set_centerpars(params=None):
+def set_centerpars(params=[]):
     """Set centerpars parameters for photometry."""
     iraf.noao.digiphot(_doprint=0)
     iraf.noao.digiphot.apphot(_doprint=0)
@@ -110,7 +110,7 @@ def set_centerpars(params=None):
     for param in params:
         iraf.noao.digiphot.apphot.centerpars.setParam(param[0], param[1])
 
-def set_photpars(params=None):
+def set_photpars(params=[]):
     """Set photpars parameters for photometry."""
     iraf.noao.digiphot(_doprint=0)
     iraf.noao.digiphot.apphot(_doprint=0)
@@ -121,7 +121,7 @@ def set_photpars(params=None):
     for param in params:
         iraf.noao.digiphot.apphot.photpars.setParam(param[0], param[1])
 
-def set_fitskypars(params=None):
+def set_fitskypars(params=[]):
     """Set fitskypars parameters for photometry."""
     iraf.noao.digiphot(_doprint=0)
     iraf.noao.digiphot.apphot(_doprint=0)
@@ -143,7 +143,7 @@ def set_fitskypars(params=None):
     for param in params:
         iraf.noao.digiphot.apphot.fitskypars.setParam(param[0], param[1])
 
-def set_findpars(params=None):
+def set_findpars(params=[]):
     """Set findpars parameters for photometry."""
     iraf.noao.digiphot(_doprint=0)
     iraf.noao.digiphot.apphot(_doprint=0)
