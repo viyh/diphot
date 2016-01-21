@@ -24,8 +24,6 @@ class Reduce:
         """
         self.src_dir = src_dir
         self.dst_dir = dst_dir
-        self.master_dir = dst_dir + '/master'
-        self.tmp_dir = dst_dir + '/tmp'
         self.filetypes = ['zero', 'dark', 'flat', 'object']
         self.dry_run = dry_run
         self.initialize_dirs()
@@ -47,8 +45,8 @@ class Reduce:
             logger.info("Source directory '{}' does not exist!".format(self.src_dir))
             sys.exit(1)
         diphot.mkdir(self.dst_dir)
-        diphot.mkdir(self.master_dir)
-        diphot.mkdir(self.tmp_dir)
+        diphot.mkdir(self.dst_dir + '/master')
+        diphot.mkdir(self.dst_dir + '/tmp')
         for filetype in self.filetypes:
             diphot.mkdir(self.dst_dir + '/' + filetype)
 
@@ -57,7 +55,7 @@ class Reduce:
         iraf.dataio.rfits(
             fits_file = self.src_dir + '/*',
             file_list = '',
-            iraf_file = self.tmp_dir + '/',
+            iraf_file = self.dst_dir + '/tmp/',
             make_image = 'yes',
             long_header = 'no',
             short_header = 'yes',
@@ -85,7 +83,7 @@ class Reduce:
         iraf.noao.imred.ccdred.zerocombine.unlearn()
         iraf.noao.imred.ccdred.zerocombine(
             input = self.dst_dir + '/zero/*.fits',
-            output = self.master_dir + '/masterzero',
+            output = self.dst_dir + '/master/masterzero',
             combine = 'average',
             reject = 'minmax',
             ccdtype = 'zero',
@@ -121,7 +119,7 @@ class Reduce:
         iraf.noao.imred.ccdred.ccdproc.fixfile = ''
         iraf.noao.imred.ccdred.ccdproc.biassec = ''
         iraf.noao.imred.ccdred.ccdproc.trimsec = ''
-        iraf.noao.imred.ccdred.ccdproc.zero = self.master_dir + '/masterzero'
+        iraf.noao.imred.ccdred.ccdproc.zero = self.dst_dir + '/master/masterzero'
         iraf.noao.imred.ccdred.ccdproc.dark = ''
         iraf.noao.imred.ccdred.ccdproc.flat = ''
 
@@ -158,12 +156,12 @@ class Reduce:
         iraf.noao.imred.ccdred.ccdproc.fixfile = ''
         iraf.noao.imred.ccdred.ccdproc.biassec = ''
         iraf.noao.imred.ccdred.ccdproc.trimsec = ''
-        iraf.noao.imred.ccdred.ccdproc.zero = self.master_dir + '/masterzero'
+        iraf.noao.imred.ccdred.ccdproc.zero = self.dst_dir + '/master/masterzero'
         iraf.noao.imred.ccdred.ccdproc.dark = ''
         iraf.noao.imred.ccdred.ccdproc.flat = ''
         iraf.noao.imred.ccdred.darkcombine(
             input = self.dst_dir + '/dark/*.fits',
-            output = self.master_dir + '/masterdark',
+            output = self.dst_dir + '/master/masterdark',
             combine = 'median',
             reject = 'minmax',
             ccdtype = 'dark',
@@ -200,7 +198,7 @@ class Reduce:
         iraf.noao.imred.ccdred.ccdproc.biassec = ''
         iraf.noao.imred.ccdred.ccdproc.trimsec = ''
         iraf.noao.imred.ccdred.ccdproc.zero = ''
-        iraf.noao.imred.ccdred.ccdproc.dark = self.master_dir + '/masterdark'
+        iraf.noao.imred.ccdred.ccdproc.dark = self.dst_dir + '/master/masterdark'
         iraf.noao.imred.ccdred.ccdproc.flat = ''
 
         filemasks = [
@@ -240,7 +238,7 @@ class Reduce:
         iraf.noao.imred.ccdred.ccdproc.flat = ''
         iraf.noao.imred.ccdred.flatcombine(
             input = self.dst_dir + '/flat/*.fits',
-            output = self.master_dir + '/masterflat',
+            output = self.dst_dir + '/master/masterflat',
             combine = 'median',
             reject = 'avsigclip',
             ccdtype = 'flat',
@@ -280,7 +278,7 @@ class Reduce:
         iraf.noao.imred.ccdred.ccdproc.trimsec = ''
         iraf.noao.imred.ccdred.ccdproc.zero = ''
         iraf.noao.imred.ccdred.ccdproc.dark = ''
-        iraf.noao.imred.ccdred.ccdproc.flat = self.master_dir + '/masterflat*'
+        iraf.noao.imred.ccdred.ccdproc.flat = self.dst_dir + '/master/masterflat*'
 
         filemasks = [
             self.dst_dir + '/object/*.fits'

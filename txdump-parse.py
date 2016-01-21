@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 #
-# DiPhot: Curve of Growth - 2016-01-20
+# DiPhot: Txdump Parse - 2016-01-20
 # https://github.com/viyh/diphot
 #
 # Parse a dump file and attempt to align stars by ID
