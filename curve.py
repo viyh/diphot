@@ -11,4 +11,4 @@ import diphot
 
 if __name__ == "__main__":
     p = diphot.CurveOfGrowth()
-    p.create_curve()
+    p.process()

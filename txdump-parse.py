@@ -11,4 +11,4 @@ import diphot
 
 if __name__ == '__main__':
     t = diphot.TxdumpParse()
-    t.parse()
+    t.process()

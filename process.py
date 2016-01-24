@@ -11,15 +11,15 @@ import diphot
 
 if __name__ == "__main__":
     r = diphot.Reduce()
-    r.auto_reduce()
+    r.process()
 
     g= diphot.CurveOfGrowth()
-    g.create_curve()
+    g.process()
 
     l = diphot.Photometry()
     l.fwhm = g.fwhm
     l.aperture = g.max_snr_aperture
-    l.run_photometry()
+    l.process()
 
     t = diphot.TxdumpParse()
-    t.parse()
+    t.process()

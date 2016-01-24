@@ -7,7 +7,7 @@
 # Library of common functions
 #
 
-import logging, tempfile, csv
+import logging, tempfile, csv, sys
 import os, shutil, glob, argparse
 import matplotlib.pyplot as plt
 import numpy as np
@@ -32,10 +32,13 @@ class DiPhot():
         self.pyraf = Pyraf(self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
 
+    def arguments(self):
+        raise("Arguments function not implemented!")
+
+    def process(self):
+        raise("Process function not implemented!")
+
     def initialize_dirs(self):
-        if not os.path.exists(self.raw_dir):
-            self.logger.info("Source directory '{}' does not exist!".format(self.raw_dir))
-            sys.exit(1)
         self.mkdir(self.output_dir, force=True)
         self.mkdir(self.output_dir + '/tmp', force=True)
         self.mkdir(self.output_dir + '/logs', force=True)
@@ -50,11 +53,8 @@ class DiPhot():
             help='don\'t actually do anything (for testing)')
         self.parser.add_argument('--debug', action='store_true',
             help='turn on debug messages')
-        self.parse_args()
+        self.arguments()
         return self.parser.parse_known_args()[0]
-
-    def parse_args(self):
-        raise("Argument parser not implemented!")
 
     def logger_init(self, log_name):
         logger = logging.getLogger(__name__)
@@ -99,6 +99,8 @@ class Pyraf():
     def initialize_instrument(self, output_dir):
         self.logger.info("Initializing instrument.")
         inst_file_name = output_dir + '/tmp/cp.dat'
+        if self.debug:
+            iraf.set(debug=1)
         iraf.noao.imred(_doprint=0)
         iraf.noao.imred.ccdred(_doprint=0)
         if not os.path.exists(inst_file_name):
@@ -110,11 +112,11 @@ class Pyraf():
                 inst_file.write('\'Light Frame\'   object\n')
                 inst_file.write('\'Flat Field\'    flat\n')
         iraf.noao.imred.ccdred.setinst(
-            instrument='cp',
-            review='no',
-            mode='h',
-            dir=output_dir + '/tmp/',
-            site=''
+            instrument = 'cp',
+            review = 'no',
+            mode = 'h',
+            dir = output_dir + '/tmp/',
+            site = ''
         )
 
     def get_files_of_type(self, src_dir, filetype):
@@ -123,7 +125,7 @@ class Pyraf():
             images = src_dir + '/*.fits',
             ccdtype = filetype,
             names = 'yes',
-            Stdout=1
+            Stdout = 1
         )
 
     def set_datapars(self, params=[]):
@@ -224,7 +226,7 @@ class Pyraf():
             expr = 'yes',
             headers = 'no',
             parameters = 'yes',
-            Stdout=1
+            Stdout = 1
         )
 
     def run_rfits(self, raw_dir, output_dir):
@@ -242,7 +244,7 @@ class Pyraf():
             oldirafname = 'no',
             offset = 0,
             mode = 'ql',
-            Stderr='dev$null'
+            Stderr = 'dev$null'
         )
 
     def run_daofind(self, output_dir, filename):
@@ -259,7 +261,8 @@ class Pyraf():
             interactive = 'no',
             icommands = '',
             gcommands = '',
-            verify = 'no'
+            verify = 'no',
+            cache = 0
         )
 
     def run_phot(self, output_dir, filemask):
@@ -277,7 +280,8 @@ class Pyraf():
             radplots = 'no',
             icommands = '',
             gcommands = '',
-            verify = 'no'
+            verify = 'no',
+            cache = 0
         )
 
     def run_psfmeasure(self, filename, coords):
@@ -517,7 +521,7 @@ class Pyraf():
             iraf.noao.imred.ccdred.ccdproc(images=filemask)
 
 class Reduce(DiPhot):
-    def __init__(self, raw_dir='data', output_dir='output', dry_run=False):
+    def __init__(self):
         """
         @param raw_dir: source directory of original FITS cubes
         @type raw_dir: str
@@ -528,18 +532,10 @@ class Reduce(DiPhot):
         self.filetypes = ['zero', 'dark', 'flat', 'object']
         self.initialize_type_dirs()
 
-    def parse_args(self):
+    def arguments(self):
         pass
 
-    def initialize_type_dirs(self):
-        if not os.path.exists(self.raw_dir):
-            self.logger.info("Source directory '{}' does not exist!".format(self.raw_dir))
-            sys.exit(1)
-        self.mkdir(self.output_dir + '/master')
-        for filetype in self.filetypes:
-            self.mkdir(self.output_dir + '/' + filetype)
-
-    def auto_reduce(self):
+    def process(self):
         self.logger.info('Creating IRAF FITS images...')
         self.pyraf.run_rfits(self.raw_dir, self.output_dir)
         self.organize_files()
@@ -550,11 +546,20 @@ class Reduce(DiPhot):
         self.pyraf.create_flat(self.output_dir)
         self.pyraf.apply_flat(self.output_dir)
 
+    def initialize_type_dirs(self):
+        if not os.path.exists(self.raw_dir):
+            self.logger.info("Source directory '{}' does not exist!".format(self.raw_dir))
+            sys.exit(1)
+        self.mkdir(self.output_dir + '/master')
+        for filetype in self.filetypes:
+            self.mkdir(self.output_dir + '/' + filetype)
+
     def organize_files(self):
         for filetype in self.filetypes:
-            self.logger.info("Moving {} files to {}".format(filetype, self.output_dir + '/' + filetype))
+            type_dir = self.output_dir + '/' + filetype
+            self.logger.info("Moving {} files to {}".format(filetype, type_dir))
             files = self.pyraf.get_files_of_type(self.output_dir + '/tmp', filetype)
-            self.move_files(files, self.output_dir + '/' + filetype)
+            self.move_files(files, type_dir)
 
 class CurveOfGrowth(DiPhot):
     def __init__(self):
@@ -562,7 +567,7 @@ class CurveOfGrowth(DiPhot):
         self.display = self.args.display
         self.graph_file = self.args.graph_file
 
-    def create_curve(self):
+    def process(self):
         self.logger.info('Creating curve of growth...')
         self.pyraf.set_datapars()
         self.pyraf.set_centerpars()
@@ -590,44 +595,37 @@ class CurveOfGrowth(DiPhot):
         for i in sorted(mags, key=int):
             v = mags[str(i)]
             if 'INDEF' in v['merr'] or 'INDEF' in v['flux']: continue
-            x = map(lambda x: float(x), v['aperture'])
-            y1 = map(lambda y1: 1.0/float(y1), v['merr'])
-            y2 = map(lambda y2: float(y2), v['flux'])
-            max_snr = 1.0 / float(max(v['merr']))
-            max_snr_x = v['merr'].index(min(v['merr'])) + 1
-            self.logger.info('Max SNR [{:.2f}], aperture {}px'.format(max_snr, max_snr_x))
-            self.max_snr = max_snr
-            self.max_snr_aperture = max_snr_x
-            return max_snr_x, x, y1, y2
+            self.x = map(lambda x: float(x), v['aperture'])
+            self.y1 = map(lambda y1: 1.0/float(y1), v['merr'])
+            self.y2 = map(lambda y2: float(y2), v['flux'])
+            self.max_snr = 1.0 / float(max(v['merr']))
+            self.max_snr_aperture = float(v['merr'].index(min(v['merr'])) + 1)
+            self.logger.info('Max SNR [{:.2f}], aperture {}px'.format(self.max_snr, self.max_snr_aperture))
+            return True
         self.logger.info('Could not find stars with complete data set!'.format())
         sys.exit()
 
-    def create_plot(self, x, y1, y2, max_x):
-        fig, ax1 = plt.subplots()
-
-        max_x = float(max_x)
-        x_np = np.array(x)
-        y1_np = np.array(y1)
-        y2_np = np.array(y2)
-
+    def create_plot(self):
+        x_np = np.array(self.x)
+        y1_np = np.array(self.y1)
+        y2_np = np.array(self.y2)
         x_smooth = np.linspace(x_np.min(), x_np.max(), 200)
         y1_smooth = interp1d(x_np, y1_np, kind='cubic')(x_smooth)
         y2_smooth = interp1d(x_np, y2_np, kind='cubic')(x_smooth)
 
+        fig, ax1 = plt.subplots()
         ax1.plot(x_smooth, y1_smooth, 'b-', lw=2)
         ax1.set_xlabel('Aperture (px)')
         ax1.set_ylabel('SNR', color='b')
-        ax1.set_ylim([0, max(y1) + max(y1)/20])
-
-        ax1.axvline(max_x, color='k', linestyle='--')
-        ax1.text(max_x + 1, 2, 'Aperture with max SNR: ' + str(max_x) + 'px')
-
+        ax1.set_ylim([0, max(self.y1) + max(self.y1)/20])
+        ax1.axvline(self.max_snr_aperture, color='k', linestyle='--')
+        ax1.text(self.max_snr_aperture + 1, 2, 'Aperture with max SNR: ' + str(self.max_snr_aperture) + 'px')
         ax2 = ax1.twinx()
         ax2.plot(x_smooth, y2_smooth, 'r-', lw=2)
         ax2.set_ylabel('Flux', color='r')
-        ax2.set_ylim([0, max(y2) + max(y2)/20])
-
+        ax2.set_ylim([0, max(self.y2) + max(self.y2)/20])
         plt.subplots_adjust(bottom=.13, left=.13, right=.85, top=.95)
+
         if self.display:
             plt.show()
         if self.graph_file:
@@ -648,8 +646,7 @@ class CurveOfGrowth(DiPhot):
 
         self.fwhm = self.pyraf.run_psfmeasure(files[file_num], coords)
         iraf.noao.digiphot.apphot.datapars.setParam('fwhmpsf', self.fwhm)
-        iraf.noao.digiphot.apphot.centerpars.setParam('cbox', self.fwhm*2.0)
-
+        iraf.noao.digiphot.apphot.centerpars.setParam('cbox', self.fwhm * 2.0)
         iraf.noao.digiphot.apphot.photpars.setParam('apertures', '1:50:1')
         self.pyraf.run_phot(self.output_dir, files[file_num])
 
@@ -657,10 +654,10 @@ class CurveOfGrowth(DiPhot):
         mag_dump = self.pyraf.get_txdump(mag_files, 'ID,RAPERT,MAG,MERR,FLUX')
         mags = self.parse_txdump(mag_dump, ['id', 'aperture', 'mag', 'merr', 'flux'])
 
-        max_snr_aperture, x, y1, y2 = self.get_data_points(mags)
-        self.create_plot(x, y1, y2, max_snr_aperture)
+        self.get_data_points(mags)
+        self.create_plot()
 
-    def parse_args(self):
+    def arguments(self):
         self.parser.add_argument('--display', action='store_true',
             help='display graph')
         self.parser.add_argument('--graph_file', type=str, default=None,
@@ -672,7 +669,15 @@ class Photometry(DiPhot):
         self.fwhm = self.args.fwhm
         self.aperture = self.args.aperture
 
-    def run_photometry(self):
+    def arguments(self):
+        self.parser.add_argument('--src_dir', type=str, default='data',
+            help='source directory of reduced FITS files')
+        self.parser.add_argument('--fwhm', type=float, default=8.0,
+            help='FWHM')
+        self.parser.add_argument('--aperture', type=float, default=15.0,
+            help='aperture size')
+
+    def process(self):
         self.logger.info('Creating light curve...')
         self.pyraf.set_datapars(params=[('fwhmpsf', self.fwhm)])
         self.pyraf.set_centerpars(params=[('cbox', self.fwhm * 2.0)])
@@ -701,14 +706,6 @@ class Photometry(DiPhot):
         mag_dump = self.pyraf.get_txdump(mag_files, 'IMAGE,ID,XCENTER,YCENTER,OTIME,MAG,MERR')
         self.write_file_from_array(self.output_dir + '/txdump.txt', mag_dump)
 
-    def parse_args(self):
-        self.parser.add_argument('--src_dir', type=str, default='data',
-            help='source directory of reduced FITS files')
-        self.parser.add_argument('--fwhm', type=float, default=8.0,
-            help='FWHM')
-        self.parser.add_argument('--aperture', type=float, default=15.0,
-            help='aperture size')
-
 class TxdumpParse(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'curveofgrowth')
@@ -717,34 +714,38 @@ class TxdumpParse(DiPhot):
         self.skip_px_threshold = 90.0
         self.skip_mag_threshold = 1.0
         self.assume = False
+        self.missing_tolerance_percent = 5
 
-    def parse_args(self):
+    def arguments(self):
         pass
 
-    def parse(self):
+    def process(self):
         dump_file = self.output_dir + '/txdump.txt'
         dump = self.read_dump(dump_file)
         dump = self.sort_dump(dump)
+        images = self.get_full_image_list(dump)
+        final_dump = self.normalize_dump(images, dump)
+        self.write_csv(images, final_dump)
 
-        print
+    def get_full_image_list(self, dump):
         images = set()
         for star in dump:
             images |= set(dump[star].keys())
+        return images
 
+    def normalize_dump(self, images, dump):
         final_dump = defaultdict(OrderedDict)
-
         for star, values in dump.iteritems():
             star_images = set(values.keys())
-            if set(images).difference(star_images):
-                print "Not a complete data set: {} [missing {} datapoints out of {}]".format(star, len(set(images).difference(star_images)), len(images))
+            diff = set(images).difference(star_images)
+            if diff:
+                print "[Star {}] - Incomplete data set: [missing {} datapoints out of {}]".format(star, len(diff), len(images))
             else:
-                print "Complete data set for star [{}]!".format(star)
-
-            if float( len(set(images).difference(star_images)) ) / float ( len(images) ) * 100.0 < 3:
+                print "[Star {}] - Complete data set!".format(star)
+            if float( len(diff) ) / float ( len(images) ) * 100.0 < self.missing_tolerance_percent:
                 print "Saving star [{}]!".format(star)
                 final_dump[star] = values
-
-        self.write_csv(images, final_dump)
+        return final_dump
 
     def read_dump(self, dump_filename):
         dump = defaultdict(list)
@@ -774,32 +775,50 @@ class TxdumpParse(DiPhot):
             star2['mag'].strip() != 'INDEF' and \
             abs(float(star1['mag']) - float(star2['mag'])) > self.skip_mag_threshold
 
+    def match_last(self, last_data, star):
+        return self.px_test(last_data['x'], star['x']) and \
+            self.px_test(last_data['y'], star['y']) and \
+            self.mag_test(last_data, star)
+
+    def match_last_skip(self, last_data, star):
+        return self.skip_px_test(last_data['x'], star['x']) or \
+            self.skip_px_test(last_data['y'], star['y']) or \
+            self.skip_mag_test(last_data, star)
+
+    def show_star(self, image, star):
+        print('Image:\t{}'.format(image))
+        print('Time:\t{}'.format(star['time']))
+        print('X:\t{}'.format(star['x']))
+        print('Y:\t{}'.format(star['y']))
+        print('Mag:\t{}'.format(star['mag']))
+        print('MErr:\t{}'.format(star['merr']))
+
+    def manual_match(self, sorted_dump, star, image):
+        print "\n\n" + "=" * 50
+        self.show_star(image, star)
+        print "=" * 50 + "\n"
+        for star_id, star_data in sorted_dump.iteritems():
+            last_image, last_data = self.last(star_data)
+            if self.match_last_skip(last_data, star): continue
+            self.show_star(last_image, last_data)
+            print "\nIs this the above star (y/N)?",
+            if self.assume == False:
+                print '\n'
+                continue
+            if self.assume == True or raw_input().lower() == 'y':
+                print '\n'
+                return star_id
+            print '\n'
+        return False
+
     def find_similar_star(self, sorted_dump, star, image):
         if not sorted_dump:
             return False
         for star_id, star_data in sorted_dump.iteritems():
             last_image, last_data = self.last(star_data)
-            if self.px_test(last_data['x'], star['x']) and \
-            self.px_test(last_data['y'], star['y']) and \
-            self.mag_test(last_data, star):
+            if self.match_last(last_data, star):
                 return star_id
-
-        # no match, lets try manual
-        print '\nimage: {}, time: {}, x: {}, y: {}, mag: {}, merr: {}'.format(image, star['time'], star['x'], star['y'], star['mag'], star['merr'])
-        for star_id, star_data in sorted_dump.iteritems():
-            last_image, last_data = self.last(star_data)
-            if self.skip_px_test(last_data['x'], star['x']) or \
-            self.skip_px_test(last_data['y'], star['y']) or \
-            self.skip_mag_test(last_data, star):
-                continue
-            print '\timage: {}, time: {}, x: {}, y: {}, mag: {}, merr: {}'.format(last_image, last_data['time'], last_data['x'], last_data['y'], last_data['mag'], last_data['merr']),
-            print "\t\tIs this the above star? ",
-            if self.assume == False:
-                continue
-            if self.assume == True or raw_input().lower() == 'y':
-                return star_id
-            print '\n'
-        return False
+        return self.manual_match(sorted_dump, star, image)
 
     def get_new_star_id(self, sorted_dump):
         if sorted_dump:
@@ -818,19 +837,36 @@ class TxdumpParse(DiPhot):
                 star_id = self.find_similar_star(sorted_dump, star, image)
                 if not star_id:
                     star_id = self.get_new_star_id(sorted_dump)
-                    print 'New star found - id: {}, image: {}, time: {}, x: {}, y: {}, mag: {}, merr: {}'.format(star_id, image, star['time'], star['x'], star['y'], star['mag'], star['merr'])
+                    print 'New star found [{}]'.format(star_id)
+                    self.show_star(image, star)
                 sorted_dump[star_id][image] = star
         return sorted_dump
+
+    def get_row(self, star, image, datapoint):
+        return [
+            star,
+            image,
+            datapoint['time'],
+            '{:.3f}'.format(datapoint['x']),
+            '{:.3f}'.format(datapoint['y']),
+            '{}'.format(datapoint['mag']),
+            '{}'.format(datapoint['merr'])
+        ]
+
+    def normalize_star_data(self, images, star, datapoints):
+        rows = []
+        for image in sorted(images):
+            if datapoints.has_key(image):
+                datapoint = datapoints[image]
+            else:
+                datapoint = {'time': 0, 'x': 0, 'y': 0, 'mag': 'INDEF', 'merr': 'INDEF'}
+            rows.append(self.get_row(star, image, datapoint))
+        return rows
 
     def write_csv(self, images, sorted_dump):
         with open(self.output_dir + '/data.csv', 'w') as csvfile:
             csvhandle = csv.writer(csvfile, delimiter=',')
             csvhandle.writerow(['id', 'image', 'time', 'x', 'y', 'mag', 'merr'])
             for star, datapoints in sorted_dump.iteritems():
-                for image in sorted(images):
-                    if datapoints.has_key(image):
-                        datapoint = datapoints[image]
-                    else:
-                        datapoint = {'time': 0, 'x': 0, 'y': 0, 'mag': 'INDEF', 'merr': 'INDEF'}
-                    row = [star, image, datapoint['time'], '{:.3f}'.format(datapoint['x']), '{:.3f}'.format(datapoint['y']), '{}'.format(datapoint['mag']), '{}'.format(datapoint['merr'])]
-                    csvhandle.writerow(row)
+                rows = self.normalize_star_data(images, star, datapoints)
+                csvhandle.writerows(rows)
