@@ -25,8 +25,20 @@ class DiPhot():
         self.raw_dir = self.args.raw_dir
         self.output_dir = self.args.output_dir
         self.dry_run = self.args.dry_run
+        self.filetypes = ['zero', 'dark', 'flat', 'object']
+        self.initialize_dirs()
         self.logger = self.logger_init(self.name)
+        self.cleanup_tmp(self.output_dir)
         self.pyraf = Pyraf(self.logger, self.debug)
+        self.pyraf.initialize_instrument(self.output_dir)
+
+    def initialize_dirs(self):
+        if not os.path.exists(self.raw_dir):
+            self.logger.info("Source directory '{}' does not exist!".format(self.raw_dir))
+            sys.exit(1)
+        self.mkdir(self.output_dir, force=True)
+        self.mkdir(self.output_dir + '/tmp', force=True)
+        self.mkdir(self.output_dir + '/logs', force=True)
 
     def init_parse_args(self):
         self.parser = argparse.ArgumentParser(description='DiPhot - Differential Photometry')
@@ -50,13 +62,14 @@ class DiPhot():
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         console = logging.StreamHandler()
         console.setFormatter(formatter)
-        handler = logging.FileHandler(log_name + '.log')
+        handler = logging.FileHandler(self.output_dir + '/logs/' + log_name + '.log')
         handler.setFormatter(formatter)
         logger.addHandler(console)
         logger.addHandler(handler)
         return logger
 
     def cleanup_tmp(self, target_dir):
+        self.logger.info("Cleaning up tmp directory.".format(target_dir + '/tmp'))
         files = glob.glob(target_dir + '/tmp/*')
         for f in files:
             os.remove(f)
@@ -70,10 +83,10 @@ class DiPhot():
         for f in files:
             shutil.move(f, target_dir)
 
-    def mkdir(self, dirname):
+    def mkdir(self, dirname, force=False):
         if not os.path.exists(dirname):
             os.makedirs(dirname)
-        else:
+        elif not force:
             answer = raw_input("Directory '{}' already exists. Delete all files? (y/N) ".format(dirname)).lower() == 'y'
             if answer:
                 shutil.rmtree(dirname, ignore_errors=True)
@@ -82,10 +95,10 @@ class Pyraf():
     def __init__(self, logger, debug=False):
         self.debug = debug
         self.logger = logger
-        self.initialize_instrument()
 
-    def initialize_instrument(self):
-        inst_file_name = 'cp.dat'
+    def initialize_instrument(self, output_dir):
+        self.logger.info("Initializing instrument.")
+        inst_file_name = output_dir + '/tmp/cp.dat'
         iraf.noao.imred(_doprint=0)
         iraf.noao.imred.ccdred(_doprint=0)
         if not os.path.exists(inst_file_name):
@@ -100,7 +113,7 @@ class Pyraf():
             instrument='cp',
             review='no',
             mode='h',
-            dir='',
+            dir=output_dir + '/tmp/',
             site=''
         )
 
@@ -513,10 +526,18 @@ class Reduce(DiPhot):
         """
         DiPhot.__init__(self, 'reduce')
         self.filetypes = ['zero', 'dark', 'flat', 'object']
-        self.initialize_dirs()
+        self.initialize_type_dirs()
 
     def parse_args(self):
         pass
+
+    def initialize_type_dirs(self):
+        if not os.path.exists(self.raw_dir):
+            self.logger.info("Source directory '{}' does not exist!".format(self.raw_dir))
+            sys.exit(1)
+        self.mkdir(self.output_dir + '/master')
+        for filetype in self.filetypes:
+            self.mkdir(self.output_dir + '/' + filetype)
 
     def auto_reduce(self):
         self.logger.info('Creating IRAF FITS images...')
@@ -528,16 +549,6 @@ class Reduce(DiPhot):
         self.pyraf.apply_dark(self.output_dir)
         self.pyraf.create_flat(self.output_dir)
         self.pyraf.apply_flat(self.output_dir)
-
-    def initialize_dirs(self):
-        if not os.path.exists(self.raw_dir):
-            self.logger.info("Source directory '{}' does not exist!".format(self.raw_dir))
-            sys.exit(1)
-        self.mkdir(self.output_dir)
-        self.mkdir(self.output_dir + '/master')
-        self.mkdir(self.output_dir + '/tmp')
-        for filetype in self.filetypes:
-            self.mkdir(self.output_dir + '/' + filetype)
 
     def organize_files(self):
         for filetype in self.filetypes:
@@ -553,14 +564,12 @@ class CurveOfGrowth(DiPhot):
 
     def create_curve(self):
         self.logger.info('Creating curve of growth...')
-        self.cleanup_tmp(self.output_dir)
         self.pyraf.set_datapars()
         self.pyraf.set_centerpars()
         self.pyraf.set_photpars()
         self.pyraf.set_fitskypars()
         self.pyraf.set_findpars()
         self.create_data_files()
-        self.cleanup_tmp(self.output_dir)
 
     def parse_txdump(self, dump, fields):
         fields.pop(0)
@@ -814,7 +823,7 @@ class TxdumpParse(DiPhot):
         return sorted_dump
 
     def write_csv(self, images, sorted_dump):
-        with open('data.csv', 'w') as csvfile:
+        with open(self.output_dir + '/data.csv', 'w') as csvfile:
             csvhandle = csv.writer(csvfile, delimiter=',')
             csvhandle.writerow(['id', 'image', 'time', 'x', 'y', 'mag', 'merr'])
             for star, datapoints in sorted_dump.iteritems():
