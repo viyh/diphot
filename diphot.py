@@ -966,46 +966,6 @@ class LightCurve(DiPhot):
         ax1.set_ylim([min(self.y1) - max(self.y1)/20, max(self.y1) + max(self.y1)/20])
         plt.show()
 
-    # def create_data_files(self):
-    #     """Create coord file (daofind) and mag file (phot) for science images."""
-    #     logger.info('Creating light curve')
-
-    #     avg_mags, target_mags = {}, {}
-    #     for frame in mags:
-    #         avg, n = 0, 0
-    #         from datetime import datetime
-    #         # date = datetime.strptime(mags[frame][0]['date'] + ' ' + mags[frame][0]['otime'] + '000', '%Y-%m-%d %H:%M:%S.%f')
-    #         date = datetime.strptime(mags[frame][0]['otime'] + '000', '%H:%M:%S.%f')
-    #         for mag in mags[frame]:
-    #             if mag['id'] == str(self.target_id):
-    #                 try:
-    #                     target_mags[date] = float(mag['mag'])
-    #                     continue
-    #                 except:
-    #                     continue
-    #             try:
-    #                 avg += float(mag['mag'])
-    #                 n += 1
-    #             except ValueError:
-    #                 pass
-    #         try:
-    #             avg /= n
-    #             avg_mags[date] = avg
-    #         except ZeroDivisionError:
-    #             pass
-
-    #     x, y_raw, y= [], [], []
-    #     for date in sorted(set(avg_mags.keys() + target_mags.keys())):
-    #         if not target_mags.has_key(date) or not avg_mags.has_key(date):
-    #             continue
-    #         x.append(date)
-    #         y_raw.append(target_mags[date] - avg_mags[date])
-
-    #     for mag in y_raw:
-    #         y.append(mag + min(y_raw))
-
-    #     self.create_plot(x, y)
-
     class star():
         def __init__(self, star_id=None, data=[]):
             self.star_id = star_id
