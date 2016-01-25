@@ -23,3 +23,7 @@ if __name__ == "__main__":
 
     t = diphot.TxdumpParse()
     t.process()
+
+    for star in t.data:
+        print "\n" + str(star)
+        print star.data[0]

@@ -12,3 +12,10 @@ import diphot
 if __name__ == '__main__':
     t = diphot.TxdumpParse()
     t.process()
+
+    for star in t.data:
+        print "\n" + str(star)
+        print star.data[0]
+
+    l = diphot.LightCurve(target_id=9, data=t.data)
+    l.process()
