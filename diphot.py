@@ -28,7 +28,7 @@ class DiPhot():
         self.filetypes = ['zero', 'dark', 'flat', 'object']
         self.initialize_dirs()
         self.logger = self.logger_init(self.name)
-        self.cleanup_tmp(self.output_dir)
+        # self.cleanup_tmp(self.output_dir)
         self.pyraf = PyRAF(self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
 
@@ -683,7 +683,6 @@ class Photometry(DiPhot):
         self.pyraf.set_photpars(params=[('apertures', self.aperture)])
         self.pyraf.set_fitskypars()
         self.pyraf.set_findpars()
-        self.cleanup_tmp(self.output_dir)
         self.create_data_files()
 
     def create_filelist(self, files, page):
@@ -713,7 +712,7 @@ class TxdumpParse(DiPhot):
         self.skip_px_threshold = 90.0
         self.skip_mag_threshold = 1.0
         self.assume = False
-        self.missing_tolerance_percent = 17
+        self.missing_tolerance_percent = 1
         self.data = []
 
     def arguments(self):
@@ -959,12 +958,30 @@ class LightCurve(DiPhot):
             self.y1.append(self.comp_data[time][0] - self.target_data[time][0])
             self.y2.append(self.comp_data[time][1] - self.target_data[time][1])
 
+    def remove_outliers(self, points, thresh=3.5):
+        median = np.median(points['y'])
+        filtered_x, filtered_y = [], []
+        for (x, y) in points:
+            print median, np.std(points['y']), abs(y - median), 3*np.std(points['y']), y
+            if abs(y - median) < 3*np.std(points['y']):
+                filtered_x.append(x)
+                filtered_y.append(y)
+        return np.array(zip(filtered_x, filtered_y), dtype=[('x',np.float),('y',np.float)])
+
     def create_plot(self):
+        from matplotlib import dates
         fig, ax1 = plt.subplots()
-        ax1.plot(self.x, self.y1, 'b-')
+        x = dates.date2num(self.x)
+        points = np.array(zip(x, self.y1), dtype=[('x',float),('y',float)])
+        filtered = self.remove_outliers(points)
+        ax1.plot_date(filtered['x'], filtered['y'], 'b.')
+        # ax1.scatter(filtered['x'], filtered['y'], s=5)
+        time_fmt = dates.DateFormatter('%H:%M')
+        ax1.xaxis.set_major_formatter(time_fmt)
         ax1.set_xlabel('time')
         ax1.set_ylabel('diff mag', color='b')
-        ax1.set_ylim([min(self.y1) - max(self.y1)/20, max(self.y1) + max(self.y1)/20])
+        ax1.set_xlim([min(filtered['x']), max(filtered['x'])])
+        ax1.set_ylim([min(filtered['y']) - 0.05, max(filtered['y']) + 0.05])
         plt.show()
 
     class star():
