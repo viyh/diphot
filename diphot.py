@@ -29,7 +29,7 @@ class DiPhot():
         self.initialize_dirs()
         self.logger = self.logger_init(self.name)
         self.cleanup_tmp(self.output_dir)
-        self.pyraf = Pyraf(self.logger, self.debug)
+        self.pyraf = PyRAF(self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
 
     def arguments(self):
@@ -91,7 +91,7 @@ class DiPhot():
             if answer:
                 shutil.rmtree(dirname, ignore_errors=True)
 
-class Pyraf():
+class PyRAF():
     def __init__(self, logger, debug=False):
         self.debug = debug
         self.logger = logger
@@ -101,6 +101,7 @@ class Pyraf():
         inst_file_name = output_dir + '/tmp/cp.dat'
         if self.debug:
             iraf.set(debug=1)
+        iraf.set(use_new_imt='no')
         iraf.noao.imred(_doprint=0)
         iraf.noao.imred.ccdred(_doprint=0)
         if not os.path.exists(inst_file_name):
