@@ -9,8 +9,9 @@
 
 import logging, tempfile, csv, sys, math
 import os, shutil, glob, argparse
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import dates
 from scipy.interpolate import interp1d
 from pyraf import iraf
 from collections import defaultdict, OrderedDict
@@ -712,7 +713,7 @@ class TxdumpParse(DiPhot):
         self.skip_px_threshold = 90.0
         self.skip_mag_threshold = 1.0
         self.assume = False
-        self.missing_tolerance_percent = 1
+        self.missing_tolerance_percent = 5
         self.data = []
 
     def arguments(self):
@@ -900,10 +901,12 @@ class LightCurve(DiPhot):
     def __init__(self, target_id=None, data=[]):
         DiPhot.__init__(self, 'lightcurve')
         self.target_id = target_id
-        self.data = data
-        self.x = []
-        self.y1 = []
-        self.y2 = []
+        self.raw_data = data
+        self.points = {}
+        self.filtered_points = {}
+        self.binned_points = {}
+        self.bin_size = 1
+        self.sigma = 3.5
 
     def arguments(self):
         self.parser.add_argument('--target_id', type=int, help='target star ID')
@@ -912,11 +915,26 @@ class LightCurve(DiPhot):
         self.logger.info('Creating light curve...')
         self.separate_stars()
         self.calculate_differential()
+        self.remove_outliers()
+        self.bin_data()
         self.create_plot()
+
+    def quad(self, arr):
+        sqrs = [math.pow(float(a),2) for a in arr]
+        return math.sqrt(sum(sqrs))
+
+    def avg(self, arr):
+        return np.average(arr)
+
+    def med(self, arr):
+        return np.median(arr)
+
+    def numpy_zip(self, x, y):
+        return np.array(zip(x, y), dtype=[('x',float),('y',float)])
 
     def separate_stars(self):
         stars = defaultdict(list)
-        for star in self.data:
+        for star in self.raw_data:
             for point in star.data:
                 stars[point.time].append((star.star_id, point.mag, point.merr))
         for time in sorted(stars.keys()):
@@ -934,9 +952,8 @@ class LightCurve(DiPhot):
                     del(stars[time][i])
         for time in times:
             mags = [float(p[1]) for p in stars[time]]
-            avg_mag = sum(mags) / len(mags)
-            sq_merrs = [math.pow(float(p[2]),2) for p in stars[time]]
-            avg_merr = math.sqrt(sum(sq_merrs))
+            avg_mag = self.avg(mags)
+            avg_merr = self.quad([p[2] for p in stars[time]])
             comp[time] = (avg_mag, avg_merr)
         return comp
 
@@ -953,50 +970,45 @@ class LightCurve(DiPhot):
         for time in self.comp_data.keys():
             from datetime import datetime
             date = datetime.strptime(time, '%H:%M:%S.%f')
-            print date, self.comp_data[time][0], self.target_data[time][0], self.comp_data[time][1], self.target_data[time][1]
-            self.x.append(date)
-            self.y1.append(self.comp_data[time][0] - self.target_data[time][0])
-            self.y2.append(self.comp_data[time][1] - self.target_data[time][1])
+            diff_mag = self.comp_data[time][0] - self.target_data[time][0]
+            diff_merr = self.quad([self.comp_data[time][1], self.target_data[time][1]])
+            self.points[dates.date2num(date)] = {'mag': diff_mag, 'merr': diff_merr}
 
-    def remove_outliers(self, points, thresh=3.5):
-        median = np.median(points['y'])
-        filtered_x, filtered_y = [], []
-        for (x, y) in points:
-            print median, np.std(points['y']), abs(y - median), 3*np.std(points['y']), y
-            if abs(y - median) < 3*np.std(points['y']):
-                filtered_x.append(x)
-                filtered_y.append(y)
-        return np.array(zip(filtered_x, filtered_y), dtype=[('x',np.float),('y',np.float)])
+    def remove_outliers(self):
+        filtered = {}
+        mags = [p['mag'] for p in self.points.values()]
+        median = np.median(mags)
+        for date, value in self.points.iteritems():
+            if abs(value['mag'] - median) < self.sigma * np.std(mags):
+                filtered[date] = value
+        self.points = filtered
+
+    def bin_data(self):
+        binned = {}
+        for i in xrange(0, len(self.points), self.bin_size):
+            chunk = self.points.keys()[i:i + self.bin_size]
+            chunk_date = self.avg(chunk)
+            mag = self.med([self.points[date]['mag'] for date in chunk])
+            merr = self.quad([self.points[date]['merr'] for date in chunk])
+            binned[chunk_date] = {'mag': mag, 'merr': merr}
+        self.points = binned
 
     def create_plot(self):
-        from matplotlib import dates
-        fig, ax1 = plt.subplots()
-        x = dates.date2num(self.x)
-        points = np.array(zip(x, self.y1), dtype=[('x',float),('y',float)])
-        filtered = self.remove_outliers(points)
-        ax1.plot_date(filtered['x'], filtered['y'], 'b.')
-        # ax1.scatter(filtered['x'], filtered['y'], s=5)
-        time_fmt = dates.DateFormatter('%H:%M')
+        fig, (ax1, ax2) = plt.subplots(1, 2)
+        x = self.points.keys()
+        y1 = [v['mag'] for v in self.points.values()]
+        y2 = [v['merr'] for v in self.points.values()]
+        ax1.plot_date(x, y1, 'b.')
+        ax1.errorbar(x, y1, yerr=y2, linestyle='None', color='gray')
+        time_fmt = dates.DateFormatter('%H:%M:%S')
         ax1.xaxis.set_major_formatter(time_fmt)
         ax1.set_xlabel('time')
         ax1.set_ylabel('diff mag', color='b')
-        ax1.set_xlim([min(filtered['x']), max(filtered['x'])])
-        ax1.set_ylim([min(filtered['y']) - 0.05, max(filtered['y']) + 0.05])
+        ax1.set_xlim([min(x), max(x)])
+        ax1.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
+        fig.autofmt_xdate()
+        ax2.hexbin(x, y1, gridsize=200, bins=10, cmap=plt.cm.YlOrRd_r)
+        ax2.xaxis.set_major_formatter(time_fmt)
+        ax2.set_xlim([min(x), max(x)])
+        ax2.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
         plt.show()
-
-    class star():
-        def __init__(self, star_id=None, data=[]):
-            self.star_id = star_id
-            self.data = data
-
-        def __str__(self):
-            return 'Star [{}]'.format(self.star_id)
-
-    class point():
-        def __init__(self, time, image,x , y, mag, merr):
-            self.time = time
-            self.image = image
-            self.x = x
-            self.y = y
-            self.mag = mag
-            self.merr = merr
