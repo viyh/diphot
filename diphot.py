@@ -30,9 +30,9 @@ class DiPhot():
         self.filetypes = ['zero', 'dark', 'flat', 'object']
         self.initialize_dirs()
         self.logger = self.logger_init(self.name)
+        self.cleanup_tmp(self.output_dir)
         self.pyraf = PyRAF(self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
-        self.cleanup_tmp(self.output_dir)
 
     def arguments(self):
         raise("Arguments function not implemented!")
@@ -92,6 +92,7 @@ class DiPhot():
             answer = raw_input("Directory '{}' already exists. Delete all files? (y/N) ".format(dirname)).lower() == 'y'
             if answer:
                 shutil.rmtree(dirname, ignore_errors=True)
+                os.makedirs(dirname)
 
 class PyRAF():
     def __init__(self, logger, debug=False):
@@ -138,7 +139,7 @@ class PyRAF():
         iraf.noao.digiphot.apphot.datapars.setParam('scale', '1.0')
         iraf.noao.digiphot.apphot.datapars.setParam('fwhmpsf', '8')
         iraf.noao.digiphot.apphot.datapars.setParam('emission', 'yes')
-        iraf.noao.digiphot.apphot.datapars.setParam('sigma', '60')
+        iraf.noao.digiphot.apphot.datapars.setParam('sigma', '35')
         iraf.noao.digiphot.apphot.datapars.setParam('datamin', '0')
         iraf.noao.digiphot.apphot.datapars.setParam('datamax', '60000')
         iraf.noao.digiphot.apphot.datapars.setParam('noise', 'poisson')
@@ -209,14 +210,14 @@ class PyRAF():
         """Set findpars parameters for photometry."""
         iraf.noao.digiphot(_doprint=0)
         iraf.noao.digiphot.apphot(_doprint=0)
-        iraf.noao.digiphot.apphot.findpars.setParam('threshold', '10')
+        iraf.noao.digiphot.apphot.findpars.setParam('threshold', '8')
         iraf.noao.digiphot.apphot.findpars.setParam('nsigma', '1.5')
         iraf.noao.digiphot.apphot.findpars.setParam('ratio', '1')
         iraf.noao.digiphot.apphot.findpars.setParam('theta', '0')
-        iraf.noao.digiphot.apphot.findpars.setParam('sharplo', '-4')
-        iraf.noao.digiphot.apphot.findpars.setParam('sharphi', '4')
-        iraf.noao.digiphot.apphot.findpars.setParam('roundlo', '-4')
-        iraf.noao.digiphot.apphot.findpars.setParam('roundhi', '4')
+        iraf.noao.digiphot.apphot.findpars.setParam('sharplo', '-5')
+        iraf.noao.digiphot.apphot.findpars.setParam('sharphi', '5')
+        iraf.noao.digiphot.apphot.findpars.setParam('roundlo', '-5')
+        iraf.noao.digiphot.apphot.findpars.setParam('roundhi', '5')
         iraf.noao.digiphot.apphot.findpars.setParam('mkdetections', 'yes')
         for param in params:
             iraf.noao.digiphot.apphot.findpars.setParam(param[0], param[1])
@@ -715,12 +716,12 @@ class Photometry(DiPhot):
 class TxdumpParse(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'curveofgrowth')
-        self.px_threshold = 75.0
+        self.px_threshold = 50.0
         self.mag_threshold = 0.8
-        self.skip_px_threshold = 90.0
-        self.skip_mag_threshold = 1.0
+        self.skip_px_threshold = 80.0
+        self.skip_mag_threshold = 1.3
         self.assume = False
-        self.missing_tolerance_percent = 3
+        self.missing_tolerance_percent = 20
         self.data = []
 
     def arguments(self):
@@ -1000,7 +1001,7 @@ class LightCurve(DiPhot):
     def calculate_differential(self):
         for time in self.comp_data.keys():
             date = datetime.strptime(time, '%H:%M:%S.%f')
-            diff_mag = self.comp_data[time][0] - self.target_data[time][0]
+            diff_mag = abs(self.target_data[time][0] - self.comp_data[time][0])
             diff_merr = self.quad([self.comp_data[time][1], self.target_data[time][1]])
             self.points[dates.date2num(date)] = {'mag': diff_mag, 'merr': diff_merr}
 
