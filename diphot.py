@@ -720,7 +720,7 @@ class TxdumpParse(DiPhot):
         self.skip_px_threshold = 90.0
         self.skip_mag_threshold = 1.0
         self.assume = False
-        self.missing_tolerance_percent = 5
+        self.missing_tolerance_percent = 3
         self.data = []
 
     def arguments(self):
@@ -916,21 +916,30 @@ class TxdumpParse(DiPhot):
                 self.image, self.time, self.x, self.y, self.mag, self.merr)
 
 class LightCurve(DiPhot):
-    def __init__(self, target_id=None, data=[]):
+    def __init__(self, target_id=None, data=[], ignore_ids=[]):
         DiPhot.__init__(self, 'lightcurve')
-        self.target_id = target_id
         self.raw_data = data
         self.points = {}
         self.filtered_points = {}
         self.binned_points = {}
-        self.bin_size = 1
-        self.sigma = 3.5
+        self.bin_size = self.args.bin
+        self.sigma = self.args.sigma
+        self.target_id = self.args.target_id
+        if not self.target_id:
+            self.target_id = target_id
+        self.ignore_ids = self.args.ignore_id
+        if not self.ignore_ids:
+            self.ignore_ids = ignore_ids
 
     def arguments(self):
         self.parser.add_argument('--target_id', type=int, help='target star ID')
+        self.parser.add_argument('--bin', type=int, default=1, help='data binning size')
+        self.parser.add_argument('--sigma', type=float, default=3.5, help='data binning size')
+        self.parser.add_argument('--ignore_id', type=int, action='append', help='star to ignore')
 
     def process(self):
         self.logger.info('Creating light curve...')
+        self.remove_ignored()
         self.create_comp_plots()
         self.separate_stars()
         self.calculate_differential()
@@ -950,6 +959,9 @@ class LightCurve(DiPhot):
 
     def numpy_zip(self, x, y):
         return np.array(zip(x, y), dtype=[('x',float),('y',float)])
+
+    def remove_ignored(self):
+        self.raw_data = [s for s in self.raw_data if s.star_id not in self.ignore_ids]
 
     def separate_stars(self):
         stars = defaultdict(list)
@@ -1015,13 +1027,11 @@ class LightCurve(DiPhot):
         num_stars = len(self.raw_data)
         dim_x = int(math.ceil(math.sqrt(num_stars)))
         dim_y = int(math.ceil(math.sqrt(num_stars)))
-        print dim_x, dim_y
         fig, ax = plt.subplots(dim_y, dim_x)
         for i, star in enumerate(self.raw_data):
             x = [datetime.strptime(p.time, '%H:%M:%S.%f') for p in star.data]
             y1 = [float(p.mag) for p in star.data]
             y2 = [float(p.merr) for p in star.data]
-            print i, int(i/dim_x), i%dim_x
             self.create_plot(ax[int(i/dim_x), i%dim_x], x, y1)
             ax[int(i/dim_x), i%dim_x].set_title("Star ID " + str(star.star_id))
         fig.autofmt_xdate()
@@ -1030,11 +1040,17 @@ class LightCurve(DiPhot):
         plt.show()
 
     def create_diff_plot(self):
-        fig, ax1 = plt.subplots(1, 1)
+        fig, (ax1, ax2) = plt.subplots(1, 2)
         x = self.points.keys()
         y1 = [v['mag'] for v in self.points.values()]
         y2 = [v['merr'] for v in self.points.values()]
         self.create_plot(ax1, x, y1, y2)
+        fig.autofmt_xdate()
+        ax2.hexbin(x, y1, gridsize=100, bins=20)
+        time_fmt = dates.DateFormatter('%H:%M:%S')
+        ax2.xaxis.set_major_formatter(time_fmt)
+        ax2.set_xlim([min(x), max(x)])
+        ax2.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
         plt.show()
 
     def create_plot(self, ax, x, y1, y2=None):
@@ -1047,7 +1063,4 @@ class LightCurve(DiPhot):
         ax.set_ylabel('diff mag', color='b')
         ax.set_xlim([min(x), max(x)])
         ax.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
-        # ax2.hexbin(x, y1, gridsize=200, bins=10, cmap=plt.cm.YlOrRd_r)
-        # ax2.xaxis.set_major_formatter(time_fmt)
-        # ax2.set_xlim([min(x), max(x)])
-        # ax2.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
+
