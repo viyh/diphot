@@ -15,6 +15,7 @@ from matplotlib import dates
 from scipy.interpolate import interp1d
 from pyraf import iraf
 from collections import defaultdict, OrderedDict
+from datetime import datetime
 
 class DiPhot():
     def __init__(self, name):
@@ -221,6 +222,7 @@ class PyRAF():
             iraf.noao.digiphot.apphot.findpars.setParam(param[0], param[1])
 
     def get_txdump(self, filemask, fields):
+        iraf.noao.digiphot(_doprint=0)
         iraf.noao.digiphot.ptools(_doprint=0)
         return iraf.noao.digiphot.ptools.txdump(
             textfiles = filemask,
@@ -721,6 +723,7 @@ class TxdumpParse(DiPhot):
 
     def process(self):
         dump_file = self.output_dir + '/txdump.txt'
+        self.create_dump(dump_file)
         points = self.read_dump(dump_file)
         dump = self.sort_dump(points)
         images = self.get_full_image_list(dump)
@@ -728,10 +731,16 @@ class TxdumpParse(DiPhot):
         self.organize_star_data(images, final_dump)
         self.write_csv()
 
+    def create_dump(self, dump_filename):
+        mag_files = self.output_dir + '/tmp/*.mag.1'
+        mag_dump = self.pyraf.get_txdump(mag_files, 'IMAGE,ID,XCENTER,YCENTER,OTIME,MAG,MERR')
+        self.write_file_from_array(self.output_dir + '/txdump.txt', mag_dump)
+
     def read_dump(self, dump_filename):
         dump = defaultdict(list)
         with open(dump_filename) as dumpfile:
             for line in dumpfile.readlines():
+                print line
                 image, id, x, y, time, mag, merr = line.split()
                 dump[(image, time)].append({'x': float(x), 'y': float(y), 'mag': mag, 'merr': merr})
         return OrderedDict(sorted(dump.items()))
@@ -838,8 +847,12 @@ class TxdumpParse(DiPhot):
         for image, time in sorted(images):
             if datapoints.has_key((image, time)):
                 datapoint = self.point(image=image, time=time, **datapoints[(image, time)])
+                if datapoint.mag == 'INDEF':
+                    datapoint.mag = np.nan
+                if datapoint.merr == 'INDEF':
+                    datapoint.merr = np.nan
             else:
-                datapoint = self.point(image=image, time=time, x=0, y=0, mag='INDEF', merr='INDEF')
+                datapoint = self.point(image=image, time=time, x=0, y=0, mag=np.nan, merr=np.nan)
             star.data.append(datapoint)
 
     def organize_star_data(self, images, sorted_dump):
@@ -913,11 +926,12 @@ class LightCurve(DiPhot):
 
     def process(self):
         self.logger.info('Creating light curve...')
+        self.create_comp_plots()
         self.separate_stars()
         self.calculate_differential()
         self.remove_outliers()
         self.bin_data()
-        self.create_plot()
+        self.create_diff_plot()
 
     def quad(self, arr):
         sqrs = [math.pow(float(a),2) for a in arr]
@@ -938,7 +952,7 @@ class LightCurve(DiPhot):
             for point in star.data:
                 stars[point.time].append((star.star_id, point.mag, point.merr))
         for time in sorted(stars.keys()):
-            if 'INDEF' in [p[1] for p in stars[time]] or 'INDEF' in [p[2] for p in stars[time]]:
+            if np.nan in [p[1] for p in stars[time]] or np.nan in [p[2] for p in stars[time]]:
                 stars.pop(time, None)
         self.target_data = self.get_target_data(stars)
         self.comp_data = self.get_comp_data(stars)
@@ -968,7 +982,6 @@ class LightCurve(DiPhot):
 
     def calculate_differential(self):
         for time in self.comp_data.keys():
-            from datetime import datetime
             date = datetime.strptime(time, '%H:%M:%S.%f')
             diff_mag = self.comp_data[time][0] - self.target_data[time][0]
             diff_merr = self.quad([self.comp_data[time][1], self.target_data[time][1]])
@@ -993,22 +1006,43 @@ class LightCurve(DiPhot):
             binned[chunk_date] = {'mag': mag, 'merr': merr}
         self.points = binned
 
-    def create_plot(self):
-        fig, (ax1, ax2) = plt.subplots(1, 2)
+    def create_comp_plots(self):
+        num_stars = len(self.raw_data)
+        dim_x = int(math.ceil(math.sqrt(num_stars)))
+        dim_y = int(math.ceil(math.sqrt(num_stars)))
+        print dim_x, dim_y
+        fig, ax = plt.subplots(dim_y, dim_x)
+        for i, star in enumerate(self.raw_data):
+            x = [datetime.strptime(p.time, '%H:%M:%S.%f') for p in star.data]
+            y1 = [float(p.mag) for p in star.data]
+            y2 = [float(p.merr) for p in star.data]
+            print i, int(i/dim_x), i%dim_x
+            self.create_plot(ax[int(i/dim_x), i%dim_x], x, y1)
+            ax[int(i/dim_x), i%dim_x].set_title("Star ID " + str(star.star_id))
+        fig.autofmt_xdate()
+        for i in range(num_stars, dim_x * dim_y):
+            fig.delaxes(ax[int(i/dim_x), i%dim_x])
+        plt.show()
+
+    def create_diff_plot(self):
+        fig, ax1 = plt.subplots(1, 1)
         x = self.points.keys()
         y1 = [v['mag'] for v in self.points.values()]
         y2 = [v['merr'] for v in self.points.values()]
-        ax1.plot_date(x, y1, 'b.')
-        ax1.errorbar(x, y1, yerr=y2, linestyle='None', color='gray')
-        time_fmt = dates.DateFormatter('%H:%M:%S')
-        ax1.xaxis.set_major_formatter(time_fmt)
-        ax1.set_xlabel('time')
-        ax1.set_ylabel('diff mag', color='b')
-        ax1.set_xlim([min(x), max(x)])
-        ax1.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
-        fig.autofmt_xdate()
-        ax2.hexbin(x, y1, gridsize=200, bins=10, cmap=plt.cm.YlOrRd_r)
-        ax2.xaxis.set_major_formatter(time_fmt)
-        ax2.set_xlim([min(x), max(x)])
-        ax2.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
+        self.create_plot(ax1, x, y1, y2)
         plt.show()
+
+    def create_plot(self, ax, x, y1, y2=None):
+        ax.plot_date(x, y1, 'b.')
+        if y2:
+            ax.errorbar(x, y1, yerr=y2, linestyle='None', color='gray')
+        time_fmt = dates.DateFormatter('%H:%M:%S')
+        ax.xaxis.set_major_formatter(time_fmt)
+        ax.set_xlabel('time')
+        ax.set_ylabel('diff mag', color='b')
+        ax.set_xlim([min(x), max(x)])
+        ax.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
+        # ax2.hexbin(x, y1, gridsize=200, bins=10, cmap=plt.cm.YlOrRd_r)
+        # ax2.xaxis.set_major_formatter(time_fmt)
+        # ax2.set_xlim([min(x), max(x)])
+        # ax2.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
