@@ -30,9 +30,9 @@ class DiPhot():
         self.filetypes = ['zero', 'dark', 'flat', 'object']
         self.initialize_dirs()
         self.logger = self.logger_init(self.name)
-        # self.cleanup_tmp(self.output_dir)
         self.pyraf = PyRAF(self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
+        self.cleanup_tmp(self.output_dir)
 
     def arguments(self):
         raise("Arguments function not implemented!")
@@ -251,11 +251,11 @@ class PyRAF():
             Stderr = 'dev$null'
         )
 
-    def run_daofind(self, output_dir, filename):
+    def run_daofind(self, output_dir, filename, coords='/tmp/default'):
         iraf.noao.digiphot.apphot(_doprint=0)
         iraf.noao.digiphot.apphot.daofind(
             image = filename,
-            output = output_dir + '/tmp/default',
+            output = output_dir + coords,
             starmap = '',
             skymap = '',
             datapars = '',
@@ -269,11 +269,11 @@ class PyRAF():
             cache = 0
         )
 
-    def run_phot(self, output_dir, filemask):
+    def run_phot(self, output_dir, filemask, coords='/tmp/default', mags='/tmp/default'):
         iraf.noao.digiphot.apphot.phot(
             image = filemask,
-            coords = output_dir + '/tmp/default',
-            output = output_dir + '/tmp/default',
+            coords = output_dir + coords,
+            output = output_dir + mags,
             skyfile = '',
             plotfile = '',
             datapars = '',
@@ -686,7 +686,12 @@ class Photometry(DiPhot):
         self.pyraf.set_photpars(params=[('apertures', self.aperture)])
         self.pyraf.set_fitskypars()
         self.pyraf.set_findpars()
+        self.initialize_phot_dirs()
         self.create_data_files()
+
+    def initialize_phot_dirs(self):
+        self.mkdir(self.output_dir + '/mag')
+        self.mkdir(self.output_dir + '/coord')
 
     def create_filelist(self, files, page):
         page_files = files[page*240:(page+1)*240]
@@ -696,14 +701,14 @@ class Photometry(DiPhot):
         files = sorted(glob.glob(filemask))
         for i in range(0, len(files)/240 + 1):
             self.create_filelist(files, i)
-            self.pyraf.run_phot(self.output_dir, '@' + self.output_dir + '/images.list')
+            self.pyraf.run_phot(self.output_dir, '@' + self.output_dir + '/images.list', coords='/coord/default', mags='/mag/default')
 
     def create_data_files(self):
         """Create coord file (daofind) and mag file (phot) for science images."""
         self.logger.info('Creating coords, mag for science images.')
-        self.pyraf.run_daofind(self.output_dir, self.output_dir + '/object/*.fits')
+        self.pyraf.run_daofind(self.output_dir, self.output_dir + '/object/*.fits', coords='/coord/default')
         self.do_photometry(self.output_dir + '/object/*.fits')
-        mag_files = self.output_dir + '/tmp/*.mag.1'
+        mag_files = self.output_dir + '/mag/*.mag.1'
         mag_dump = self.pyraf.get_txdump(mag_files, 'IMAGE,ID,XCENTER,YCENTER,OTIME,MAG,MERR')
         self.write_file_from_array(self.output_dir + '/txdump.txt', mag_dump)
 
@@ -732,7 +737,7 @@ class TxdumpParse(DiPhot):
         self.write_csv()
 
     def create_dump(self, dump_filename):
-        mag_files = self.output_dir + '/tmp/*.mag.1'
+        mag_files = self.output_dir + '/mag/*.mag.1'
         mag_dump = self.pyraf.get_txdump(mag_files, 'IMAGE,ID,XCENTER,YCENTER,OTIME,MAG,MERR')
         self.write_file_from_array(self.output_dir + '/txdump.txt', mag_dump)
 
