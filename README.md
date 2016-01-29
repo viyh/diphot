@@ -9,10 +9,9 @@ Scripts to simplify differential photometry data reduction using PyRAF.
 These scripts can be used to reduce data for differential photometry. The general order of usage is as follows:
 
 * reduce.py - Organizes and creates master zero, dark, and flat images, and removes these from object images.
-* curve.py - Create a curve of growth which helps you choose the currect aperture to use for photometry and gives an idea of the SNR of the object images.
+* curveofgrowth.py - Create a curve of growth which helps you choose the currect aperture to use for photometry and gives an idea of the SNR of the object images.
 * photometry.py - Find stars in images and collect magnitude data and created a data dump file.
-* txdump-parse.py - Parses the dump file to align stars by ID and dump to CSV.
-* lightcurve.py - Create a differential light curve.
+* lightcurve.py - Parses the dump file to align stars by ID and dump to CSV. Create a differential light curve.
 
 # Scripts
 

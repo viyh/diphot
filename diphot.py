@@ -736,6 +736,7 @@ class TxdumpParse(DiPhot):
         final_dump = self.clean_dump(images, dump)
         self.organize_star_data(images, final_dump)
         self.write_csv()
+        # self.display_image()
 
     def create_dump(self, dump_filename):
         mag_files = self.output_dir + '/mag/*.mag.1'
@@ -895,6 +896,14 @@ class TxdumpParse(DiPhot):
                 final_dump[star] = values
         return final_dump
 
+    def display_image(self):
+        import pyfits
+        fitsfile = self.output_dir + '/object/' + self.data[0].data[0].image
+        hdulist = pyfits.open(fitsfile)
+        tbdata = hdulist[0].data
+        plt.imshow(tbdata, cmap='gray')
+        plt.colorbar()
+
     class star():
         def __init__(self, star_id=None, data=[]):
             self.star_id = star_id
@@ -937,11 +946,14 @@ class LightCurve(DiPhot):
         self.parser.add_argument('--bin', type=int, default=1, help='data binning size')
         self.parser.add_argument('--sigma', type=float, default=3.5, help='data binning size')
         self.parser.add_argument('--ignore_id', type=int, action='append', help='star to ignore')
+        self.parser.add_argument('--comp', action='store_true', help='show individual star graphs')
 
     def process(self):
         self.logger.info('Creating light curve...')
         self.remove_ignored()
-        self.create_comp_plots()
+        if self.args.comp:
+            self.create_comp_plots()
+            sys.exit(0)
         self.separate_stars()
         self.calculate_differential()
         self.remove_outliers()
@@ -974,6 +986,15 @@ class LightCurve(DiPhot):
                 stars.pop(time, None)
         self.target_data = self.get_target_data(stars)
         self.comp_data = self.get_comp_data(stars)
+
+    def get_full_average(self):
+        avg_comp  = defaultdict(list)
+        for time in self.comp_data.keys():
+            date = datetime.strptime(time, '%H:%M:%S.%f')
+            avg_mag = self.avg([d[0] for d in self.comp_data[time])
+            avg_merr = self.quad([d[1] for d in self.comp_data[time]])
+            avg_comp[dates.date2num(date)] = {'mag': avg_mag, 'merr': avg_merr}
+        self.avg_comp = avg_comp
 
     def get_comp_data(self, stars):
         times = sorted(stars.keys())
