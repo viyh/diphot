@@ -139,7 +139,7 @@ class PyRAF():
         iraf.noao.digiphot.apphot.datapars.setParam('scale', '1.0')
         iraf.noao.digiphot.apphot.datapars.setParam('fwhmpsf', '8')
         iraf.noao.digiphot.apphot.datapars.setParam('emission', 'yes')
-        iraf.noao.digiphot.apphot.datapars.setParam('sigma', '35')
+        iraf.noao.digiphot.apphot.datapars.setParam('sigma', '100')
         iraf.noao.digiphot.apphot.datapars.setParam('datamin', '0')
         iraf.noao.digiphot.apphot.datapars.setParam('datamax', '60000')
         iraf.noao.digiphot.apphot.datapars.setParam('noise', 'poisson')
@@ -716,9 +716,9 @@ class Photometry(DiPhot):
 class TxdumpParse(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'curveofgrowth')
-        self.px_threshold = 50.0
+        self.px_threshold = 70.0
         self.mag_threshold = 0.8
-        self.skip_px_threshold = 80.0
+        self.skip_px_threshold = 100.0
         self.skip_mag_threshold = 1.3
         self.assume = False
         self.missing_tolerance_percent = 20
@@ -823,8 +823,9 @@ class TxdumpParse(DiPhot):
         print "=" * 50 + "\n"
         for star_id, star_data in sorted_dump.iteritems():
             last_image, last_data = self.last(star_data)
+            if last_image == (image, time): continue
             if self.match_last_skip(last_data, star): continue
-            self.show_star(last_image, time, last_data)
+            self.show_star(last_image[0], last_image[1], last_data)
             print "\nIs this the above star (y/N)?",
             if self.assume == False:
                 print '\n'
@@ -942,19 +943,20 @@ class LightCurve(DiPhot):
             self.ignore_ids = ignore_ids
 
     def arguments(self):
-        self.parser.add_argument('--target_id', type=int, help='target star ID')
+        self.parser.add_argument('-t', '--target_id', type=int, help='target star ID')
         self.parser.add_argument('--bin', type=int, default=1, help='data binning size')
         self.parser.add_argument('--sigma', type=float, default=3.5, help='data binning size')
-        self.parser.add_argument('--ignore_id', type=int, action='append', help='star to ignore')
+        self.parser.add_argument('-i', '--ignore_id', type=int, action='append', help='star to ignore')
         self.parser.add_argument('--comp', action='store_true', help='show individual star graphs')
 
     def process(self):
         self.logger.info('Creating light curve...')
         self.remove_ignored()
+        self.separate_stars()
+        # self.get_full_average()
         if self.args.comp:
             self.create_comp_plots()
             sys.exit(0)
-        self.separate_stars()
         self.calculate_differential()
         self.remove_outliers()
         self.bin_data()
@@ -986,15 +988,6 @@ class LightCurve(DiPhot):
                 stars.pop(time, None)
         self.target_data = self.get_target_data(stars)
         self.comp_data = self.get_comp_data(stars)
-
-    def get_full_average(self):
-        avg_comp  = defaultdict(list)
-        for time in self.comp_data.keys():
-            date = datetime.strptime(time, '%H:%M:%S.%f')
-            avg_mag = self.avg([d[0] for d in self.comp_data[time])
-            avg_merr = self.quad([d[1] for d in self.comp_data[time]])
-            avg_comp[dates.date2num(date)] = {'mag': avg_mag, 'merr': avg_merr}
-        self.avg_comp = avg_comp
 
     def get_comp_data(self, stars):
         times = sorted(stars.keys())
@@ -1045,20 +1038,31 @@ class LightCurve(DiPhot):
             binned[chunk_date] = {'mag': mag, 'merr': merr}
         self.points = binned
 
+    # def get_full_average(self):
+    #     avg_comp  = defaultdict(list)
+    #     for time in self.comp_data.keys():
+    #         date = datetime.strptime(time, '%H:%M:%S.%f')
+    #         avg_mag = self.avg([float(d[0]) for d in self.comp_data])
+    #         avg_merr = self.quad([float(d[1]) for d in self.comp_data])
+    #         avg_comp[date] = {'mag': avg_mag, 'merr': avg_merr}
+    #     self.avg_comp = avg_comp
+
     def create_comp_plots(self):
         num_stars = len(self.raw_data)
         dim_x = int(math.ceil(math.sqrt(num_stars)))
         dim_y = int(math.ceil(math.sqrt(num_stars)))
-        fig, ax = plt.subplots(dim_y, dim_x)
+        fig, axs = plt.subplots(dim_y, dim_x)
         for i, star in enumerate(self.raw_data):
+            ax = axs[int(i/dim_x), i%dim_x]
             x = [datetime.strptime(p.time, '%H:%M:%S.%f') for p in star.data]
             y1 = [float(p.mag) for p in star.data]
             y2 = [float(p.merr) for p in star.data]
-            self.create_plot(ax[int(i/dim_x), i%dim_x], x, y1)
-            ax[int(i/dim_x), i%dim_x].set_title("Star ID " + str(star.star_id))
+            self.create_plot(ax, x, y1)
+            ax.set_title("Star ID " + str(star.star_id))
+            # ax.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
         fig.autofmt_xdate()
         for i in range(num_stars, dim_x * dim_y):
-            fig.delaxes(ax[int(i/dim_x), i%dim_x])
+            fig.delaxes(axs[int(i/dim_x), i%dim_x])
         plt.show()
 
     def create_diff_plot(self):
@@ -1084,5 +1088,4 @@ class LightCurve(DiPhot):
         ax.set_xlabel('time')
         ax.set_ylabel('diff mag', color='b')
         ax.set_xlim([min(x), max(x)])
-        ax.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
 
