@@ -5,6 +5,8 @@ To Do:
 * Add "skip" functionality for reduction (skip-flat, skip-zero, etc.)
 * Create CLI arguments for everything
 * Implement target guess based of user provided coords of star in first image
+* Display average delta star comps
+* Implement configuration file for settings
 
 Done:
 
