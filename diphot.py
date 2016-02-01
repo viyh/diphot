@@ -139,7 +139,7 @@ class PyRAF():
         iraf.noao.digiphot.apphot.datapars.setParam('scale', '1.0')
         iraf.noao.digiphot.apphot.datapars.setParam('fwhmpsf', '8')
         iraf.noao.digiphot.apphot.datapars.setParam('emission', 'yes')
-        iraf.noao.digiphot.apphot.datapars.setParam('sigma', '100')
+        iraf.noao.digiphot.apphot.datapars.setParam('sigma', '80')
         iraf.noao.digiphot.apphot.datapars.setParam('datamin', '0')
         iraf.noao.digiphot.apphot.datapars.setParam('datamax', '60000')
         iraf.noao.digiphot.apphot.datapars.setParam('noise', 'poisson')
@@ -825,12 +825,11 @@ class TxdumpParse(DiPhot):
             last_image, last_data = self.last(star_data)
             if last_image == (image, time): continue
             if self.match_last_skip(last_data, star): continue
+            if self.assume == False: continue
+            if self.assume == True: return star_id
             self.show_star(last_image[0], last_image[1], last_data)
             print "\nIs this the above star (y/N)?",
-            if self.assume == False:
-                print '\n'
-                continue
-            if self.assume == True or raw_input().lower() == 'y':
+            if raw_input().lower() == 'y':
                 print '\n'
                 return star_id
             print '\n'
