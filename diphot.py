@@ -141,7 +141,7 @@ class PyRAF():
         iraf.noao.digiphot.apphot.datapars.setParam('emission', 'yes')
         iraf.noao.digiphot.apphot.datapars.setParam('sigma', '80')
         iraf.noao.digiphot.apphot.datapars.setParam('datamin', '0')
-        iraf.noao.digiphot.apphot.datapars.setParam('datamax', '60000')
+        iraf.noao.digiphot.apphot.datapars.setParam('datamax', '65000')
         iraf.noao.digiphot.apphot.datapars.setParam('noise', 'poisson')
         iraf.noao.digiphot.apphot.datapars.setParam('ccdread', '')
         iraf.noao.digiphot.apphot.datapars.setParam('gain', '')
@@ -571,6 +571,7 @@ class CurveOfGrowth(DiPhot):
         DiPhot.__init__(self, 'curveofgrowth')
         self.display = self.args.display
         self.graph_file = self.args.graph_file
+        self.cog_image = self.args.cog_image
 
     def process(self):
         self.logger.info('Creating curve of growth...')
@@ -603,7 +604,7 @@ class CurveOfGrowth(DiPhot):
             self.x = map(lambda x: float(x), v['aperture'])
             self.y1 = map(lambda y1: 1.0/float(y1), v['merr'])
             self.y2 = map(lambda y2: float(y2), v['flux'])
-            self.max_snr = 1.0 / float(max(v['merr']))
+            self.max_snr = 1.0 / float(min(v['merr']))
             self.max_snr_aperture = float(v['merr'].index(min(v['merr'])) + 1)
             self.logger.info('Max SNR [{:.2f}], aperture {}px'.format(self.max_snr, self.max_snr_aperture))
             return True
@@ -642,20 +643,25 @@ class CurveOfGrowth(DiPhot):
         self.logger.info('Creating coords, mag for first science image.')
 
         files = self.pyraf.get_files_of_type(self.output_dir + '/object', 'object')
-        file_num = int(len(files) / 2)
-        self.pyraf.run_daofind(self.output_dir, files[file_num])
 
-        coord_files = self.output_dir + '/tmp/' + os.path.basename(files[file_num]) + '.coo.1'
+        file_num = int(len(files) / 2)
+        cog_image = files[file_num]
+        if self.cog_image:
+            cog_image = self.cog_image
+
+        self.pyraf.run_daofind(self.output_dir, cog_image)
+
+        coord_files = self.output_dir + '/tmp/' + os.path.basename(cog_image) + '.coo.1'
         coord_dump = self.pyraf.get_txdump(coord_files, 'ID,XCENTER,YCENTER')
         coords = self.parse_txdump(coord_dump, ['id', 'x', 'y'])
 
-        self.fwhm = self.pyraf.run_psfmeasure(files[file_num], coords)
+        self.fwhm = self.pyraf.run_psfmeasure(cog_image, coords)
         iraf.noao.digiphot.apphot.datapars.setParam('fwhmpsf', self.fwhm)
         iraf.noao.digiphot.apphot.centerpars.setParam('cbox', self.fwhm * 2.0)
         iraf.noao.digiphot.apphot.photpars.setParam('apertures', '1:50:1')
-        self.pyraf.run_phot(self.output_dir, files[file_num])
+        self.pyraf.run_phot(self.output_dir, cog_image)
 
-        mag_files = self.output_dir + '/tmp/' + os.path.basename(files[file_num]) + '.mag.*'
+        mag_files = self.output_dir + '/tmp/' + os.path.basename(cog_image) + '.mag.*'
         mag_dump = self.pyraf.get_txdump(mag_files, 'ID,RAPERT,MAG,MERR,FLUX')
         mags = self.parse_txdump(mag_dump, ['id', 'aperture', 'mag', 'merr', 'flux'])
 
@@ -667,6 +673,8 @@ class CurveOfGrowth(DiPhot):
             help='display graph')
         self.parser.add_argument('--graph_file', type=str, default=None,
             help='output graph file name')
+        self.parser.add_argument('--cog_image', type=str, default=None,
+            help='image to use for curve of growth measurement')
 
 class Photometry(DiPhot):
     def __init__(self):
@@ -716,12 +724,12 @@ class Photometry(DiPhot):
 class TxdumpParse(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'curveofgrowth')
-        self.px_threshold = 70.0
-        self.mag_threshold = 0.8
-        self.skip_px_threshold = 100.0
-        self.skip_mag_threshold = 1.3
+        self.px_threshold = 50.0
+        self.mag_threshold = 0.5
+        self.skip_px_threshold = 80.0
+        self.skip_mag_threshold = 1.0
         self.assume = False
-        self.missing_tolerance_percent = 20
+        self.missing_tolerance_percent = 10
         self.data = []
 
     def arguments(self):
@@ -944,7 +952,7 @@ class LightCurve(DiPhot):
     def arguments(self):
         self.parser.add_argument('-t', '--target_id', type=int, help='target star ID')
         self.parser.add_argument('--bin', type=int, default=1, help='data binning size')
-        self.parser.add_argument('--sigma', type=float, default=3.5, help='data binning size')
+        self.parser.add_argument('--sigma', type=float, default=3.5, help='stddev to remove outlier data points')
         self.parser.add_argument('-i', '--ignore_id', type=int, action='append', help='star to ignore')
         self.parser.add_argument('--comp', action='store_true', help='show individual star graphs')
 
@@ -1087,4 +1095,3 @@ class LightCurve(DiPhot):
         ax.set_xlabel('time')
         ax.set_ylabel('diff mag', color='b')
         ax.set_xlim([min(x), max(x)])
-

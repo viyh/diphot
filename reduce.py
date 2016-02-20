@@ -13,4 +13,3 @@ import diphot
 if __name__ == "__main__":
     p = diphot.Reduce()
     p.process()
-

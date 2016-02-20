@@ -7,6 +7,8 @@ To Do:
 * Implement target guess based of user provided coords of star in first image
 * Display average delta star comps
 * Implement configuration file for settings
+* Convert to config file for options
+* Fix trailing slash failures on inputted directory names
 
 Done:
 
