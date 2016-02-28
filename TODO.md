@@ -4,8 +4,10 @@ To Do:
 * Add "skip" functionality for reduction (skip-flat, skip-zero, etc.)
 * Create CLI arguments for everything
 * Display average delta star comps
+* Document config settings in comments
 * Add tresca dump functionality
 * Make compatible with dirac4
+    - dirac4 needs upgrade: numpy
 
 Done:
 

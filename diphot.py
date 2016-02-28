@@ -59,8 +59,8 @@ class DiPhot():
         self.set_attributes()
         self.raw_dir = os.path.expanduser(self.raw_dir.rstrip('/'))
         self.output_dir = os.path.expanduser(self.output_dir.rstrip('/'))
-        self.logger = Logger(self).logger
         self.initialize_dirs()
+        self.logger = Logger(self).logger
         self.cleanup_tmp(self.output_dir)
         self.pyraf = PyRAF(self.config, self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
