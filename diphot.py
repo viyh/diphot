@@ -940,6 +940,7 @@ class LightCurve(DiPhot):
         self.bin_size = self.args.bin
         self.sigma = self.args.sigma
         self.target_id = self.args.target_id
+        self.comp = self.args.comp
         if not self.target_id:
             self.target_id = target_id
         self.ignore_ids = self.args.ignore_id
@@ -958,7 +959,7 @@ class LightCurve(DiPhot):
         self.remove_ignored()
         self.separate_stars()
         # self.get_full_average()
-        if not self.target_id or (hasattr(self, 'comp') and self.comp):
+        if (hasattr(self, 'comp') and self.comp) or not self.target_id:
             self.create_comp_plots()
             sys.exit(0)
         self.calculate_differential()
