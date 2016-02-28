@@ -734,6 +734,7 @@ class TxdumpParse(DiPhot):
         # self.display_image()
 
     def find_target(self):
+        if not self.target_x or not self.target_y: return False
         for star in self.data:
             x = star.data[0].x
             y = star.data[0].y
@@ -1058,7 +1059,7 @@ class LightCurve(DiPhot):
         dim_y = int(math.ceil(math.sqrt(num_stars)))
         fig, axs = plt.subplots(dim_y, dim_x)
         for i, star in enumerate(self.raw_data):
-            ax = axs[int(i/dim_x), int(i/dim_y)]
+            ax = axs[int(i/dim_x), int(i%dim_x)]
             x = [datetime.strptime(p.time, '%H:%M:%S.%f') for p in star.data]
             y1 = [float(p.mag) for p in star.data]
             # y1 = [float(p.mag) - float(q) for p, q in zip(star.data, avgs)]
@@ -1068,7 +1069,7 @@ class LightCurve(DiPhot):
             # ax.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
         fig.autofmt_xdate()
         for i in range(num_stars, dim_x * dim_y):
-            fig.delaxes(axs[int(i/dim_x), int(i/dim_y)])
+            fig.delaxes(axs[int(i/dim_x), int(i%dim_x)])
         plt.show()
 
     def create_diff_plot(self):
