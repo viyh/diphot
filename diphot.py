@@ -273,23 +273,23 @@ class PyRAF(Singleton):
         daofind(filename)
 
     def run_phot(self, output_dir, filemask, coords='/tmp/default', mags='/tmp/default'):
-        iraf.noao.digiphot.apphot.phot(
-            image = filemask,
-            coords = output_dir + coords,
-            output = output_dir + mags,
-            skyfile = '',
-            plotfile = '',
-            datapars = '',
-            centerpars = '',
-            fitskypars = '',
-            photpars = '',
-            interactive = 'no',
-            radplots = 'no',
-            icommands = '',
-            gcommands = '',
-            verify = 'no',
-            cache = 0
-        )
+        phot = iraf.noao.digiphot.apphot.phot
+        phot.image = filemask
+        phot.coords = output_dir + coords
+        phot.output = output_dir + mags
+        phot.skyfile = ''
+        phot.plotfile = ''
+        phot.datapars = ''
+        phot.centerpars = ''
+        phot.fitskypars = ''
+        phot.photpars = ''
+        phot.interactive = 'no'
+        phot.radplots = 'no'
+        phot.icommands = ''
+        phot.gcommands = ''
+        phot.verify = 'no'
+        phot.cache = 0
+        phot(filemask, Stdout = 1, Stderr = '/dev/null', StdoutG = '/dev/null')
 
     def run_psfmeasure(self, filename, coords):
         tmp_file = tempfile.NamedTemporaryFile(delete=False)
