@@ -1,4 +1,4 @@
-diphot:
+diphot: &defaults
     debug: False
     output_dir: output
     raw_dir: input
