@@ -76,10 +76,10 @@ class DiPhot():
         custom_config = {}
         if os.path.exists('diphot.yml'):
             custom_config = yaml.safe_load(open('diphot.yml'))
-        config = merge(custom_config, config)
+        config = self.config_merge(custom_config, config)
         return config
 
-    def merge(custom, default):
+    def config_merge(custom, default):
         if isinstance(custom, dict) and isinstance(default, dict):
             for k,v in default.iteritems():
                 if k not in user:
