@@ -1067,7 +1067,7 @@ class LightCurve(DiPhot):
             self.logger.info('No stars found! Try adjusting the tolerence percentage and max/px thresholds.')
             sys.exit(0)
         dim_x = int(math.ceil(math.sqrt(num_stars)))
-        dim_y = int(math.floor(math.sqrt(num_stars)))
+        dim_y = int(math.ceil(math.sqrt(num_stars)))
         fig, axs = plt.subplots(dim_y, dim_x)
         for i, star in enumerate(self.raw_data):
             if dim_x == 1:
