@@ -7,8 +7,11 @@
 # Library of common functions
 #
 
+__version__ = '0.2'
+
 import logging, tempfile, csv, sys, math
 import os, shutil, glob, argparse
+import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import dates
@@ -17,21 +20,49 @@ from pyraf import iraf
 from collections import defaultdict, OrderedDict
 from datetime import datetime
 
+class _Singleton(type):
+    _instances = {}
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(_Singleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+class Singleton(_Singleton('SingletonMeta', (object,), {})): pass
+
+class Logger(Singleton):
+    def __init__(self, diphot):
+        self.logger = self.logger_init(diphot.output_dir, 'diphot')
+
+    def logger_init(self, output_dir, log_name):
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        handler = logging.FileHandler(output_dir + '/logs/' + log_name + '.log')
+        handler.setFormatter(formatter)
+        logger.addHandler(console)
+        logger.addHandler(handler)
+        return logger
+
 class DiPhot():
     def __init__(self, name):
         os.environ.get('iraf','/usr/local/iraf')
         os.environ.get('IRAFARCH','linux64')
         self.name = name
+        self.config = self.init_parse_config()
         self.args = self.init_parse_args()
-        self.debug = self.args.debug
-        self.raw_dir = self.args.raw_dir
-        self.output_dir = self.args.output_dir
-        self.dry_run = self.args.dry_run
-        self.filetypes = ['zero', 'dark', 'flat', 'object']
+        if hasattr(self.config['diphot'], 'debug'):
+            self.debug = self.config['diphot']['debug']
+        if hasattr(self.args, 'debug'):
+            self.debug = self.args.debug
+        self.set_attributes()
+        self.raw_dir = os.path.expanduser(self.raw_dir.rstrip('/'))
+        self.output_dir = os.path.expanduser(self.output_dir.rstrip('/'))
+        self.logger = Logger(self).logger
         self.initialize_dirs()
-        self.logger = self.logger_init(self.name)
         self.cleanup_tmp(self.output_dir)
-        self.pyraf = PyRAF(self.logger, self.debug)
+        self.pyraf = PyRAF(self.config, self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
 
     def arguments(self):
@@ -40,6 +71,25 @@ class DiPhot():
     def process(self):
         raise("Process function not implemented!")
 
+    def init_parse_config(self):
+        config = yaml.safe_load(open('diphot_defaults.yml'))
+        custom_config = {}
+        if os.path.exists('diphot.yml'):
+            custom_config = yaml.safe_load(open('diphot.yml'))
+        for k in config.keys():
+            if k not in custom_config: continue
+            config[k].update(custom_config[k])
+        return config
+
+    def set_attributes(self):
+        for k, v in self.config['diphot'].iteritems():
+            if k == 'debug': continue
+            setattr(self, k, v)
+            if hasattr(self.args, k) and getattr(self.args, k):
+                setattr(self, k, getattr(self.args, k))
+            if self.debug:
+                print('Arg - {}: {}'.format(k, getattr(self, k)))
+
     def initialize_dirs(self):
         self.mkdir(self.output_dir, force=True)
         self.mkdir(self.output_dir + '/tmp', force=True)
@@ -47,12 +97,14 @@ class DiPhot():
 
     def init_parse_args(self):
         self.parser = argparse.ArgumentParser(description='DiPhot - Differential Photometry')
-        self.parser.add_argument('--raw_dir', type=str, default='input',
+        self.parser.add_argument('--raw_dir', type=str,
             help='source directory of raw FITS files')
-        self.parser.add_argument('--output_dir', type=str, default='output',
+        self.parser.add_argument('--output_dir', type=str,
             help='destination directory for processed and master FITS files')
-        self.parser.add_argument('--dry_run', action='store_true',
-            help='don\'t actually do anything (for testing)')
+        self.parser.add_argument('--target_x', '-x', type=float, dest='target_x',
+            help='approximate X pixel of target in first object image')
+        self.parser.add_argument('--target_y', '-y', type=float, dest='target_y',
+            help='approximate Y pixel of target in first object image')
         self.parser.add_argument('--debug', action='store_true',
             help='turn on debug messages')
         self.arguments()
@@ -94,10 +146,11 @@ class DiPhot():
                 shutil.rmtree(dirname, ignore_errors=True)
                 os.makedirs(dirname)
 
-class PyRAF():
-    def __init__(self, logger, debug=False):
-        self.debug = debug
+class PyRAF(Singleton):
+    def __init__(self, config, logger, debug=False):
+        self.config = config
         self.logger = logger
+        self.debug = debug
 
     def initialize_instrument(self, output_dir):
         self.logger.info("Initializing instrument.")
@@ -122,9 +175,12 @@ class PyRAF():
             dir = output_dir + '/tmp/',
             site = ''
         )
+        iraf.noao.digiphot(_doprint=0)
+        iraf.noao.digiphot.apphot(_doprint=0)
+        iraf.dataio(_doprint=0)
+        iraf.noao.digiphot.ptools(_doprint=0)
 
     def get_files_of_type(self, src_dir, filetype):
-        iraf.noao(_doprint=0)
         return iraf.noao.imred.ccdred.ccdlist(
             images = src_dir + '/*.fits',
             ccdtype = filetype,
@@ -132,99 +188,47 @@ class PyRAF():
             Stdout = 1
         )
 
+    def initialize_parameters(self, section_name, instance):
+        if section_name not in self.config: return
+        for k, v in self.config[section_name].iteritems():
+            instance.setParam(k, v)
+
     def set_datapars(self, params=[]):
         """Set datapars parameters for photometry."""
-        iraf.noao.digiphot(_doprint=0)
-        iraf.noao.digiphot.apphot(_doprint=0)
-        iraf.noao.digiphot.apphot.datapars.setParam('scale', '1.0')
-        iraf.noao.digiphot.apphot.datapars.setParam('fwhmpsf', '8')
-        iraf.noao.digiphot.apphot.datapars.setParam('emission', 'yes')
-        iraf.noao.digiphot.apphot.datapars.setParam('sigma', '80')
-        iraf.noao.digiphot.apphot.datapars.setParam('datamin', '0')
-        iraf.noao.digiphot.apphot.datapars.setParam('datamax', '65000')
-        iraf.noao.digiphot.apphot.datapars.setParam('noise', 'poisson')
-        iraf.noao.digiphot.apphot.datapars.setParam('ccdread', '')
-        iraf.noao.digiphot.apphot.datapars.setParam('gain', '')
-        iraf.noao.digiphot.apphot.datapars.setParam('readnoise', '8.8')
-        iraf.noao.digiphot.apphot.datapars.setParam('epadu', '1.3')
-        iraf.noao.digiphot.apphot.datapars.setParam('exposur', 'EXPTIME')
-        iraf.noao.digiphot.apphot.datapars.setParam('airmass', 'AIRMASS')
-        iraf.noao.digiphot.apphot.datapars.setParam('filter', 'FILTER')
-        iraf.noao.digiphot.apphot.datapars.setParam('obstime', 'DATE-OBS')
-        iraf.noao.digiphot.apphot.datapars.setParam('itime', 'INDEF')
-        iraf.noao.digiphot.apphot.datapars.setParam('xairmass', 'INDEF')
-        iraf.noao.digiphot.apphot.datapars.setParam('ifilter', 'INDEF')
-        iraf.noao.digiphot.apphot.datapars.setParam('otime', 'INDEF')
+        datapars = iraf.noao.digiphot.apphot.datapars
+        self.initialize_parameters('iraf.noao.digiphot.apphot.datapars', datapars)
         for param in params:
-            iraf.noao.digiphot.apphot.datapars.setParam(param[0], param[1])
+            datapars.setParam(param[0], param[1])
 
     def set_centerpars(self, params=[]):
         """Set centerpars parameters for photometry."""
-        iraf.noao.digiphot(_doprint=0)
-        iraf.noao.digiphot.apphot(_doprint=0)
-        iraf.noao.digiphot.apphot.centerpars.setParam('calgorithm', 'centroid')
-        iraf.noao.digiphot.apphot.centerpars.setParam('cbox', '16')
-        iraf.noao.digiphot.apphot.centerpars.setParam('cthreshold', '0')
-        iraf.noao.digiphot.apphot.centerpars.setParam('minsnratio', '1')
-        iraf.noao.digiphot.apphot.centerpars.setParam('cmaxiter', '10')
-        iraf.noao.digiphot.apphot.centerpars.setParam('maxshift', '3')
-        iraf.noao.digiphot.apphot.centerpars.setParam('clean', 'no')
-        iraf.noao.digiphot.apphot.centerpars.setParam('mkcente', 'yes')
+        centerpars = iraf.noao.digiphot.apphot.centerpars
+        self.initialize_parameters('iraf.noao.digiphot.apphot.centerpars', centerpars)
         for param in params:
-            iraf.noao.digiphot.apphot.centerpars.setParam(param[0], param[1])
+            centerpars.setParam(param[0], param[1])
 
     def set_photpars(self, params=[]):
         """Set photpars parameters for photometry."""
-        iraf.noao.digiphot(_doprint=0)
-        iraf.noao.digiphot.apphot(_doprint=0)
-        iraf.noao.digiphot.apphot.photpars.setParam('weighting', 'constant')
-        iraf.noao.digiphot.apphot.photpars.setParam('apertures', '15')
-        iraf.noao.digiphot.apphot.photpars.setParam('zmag', '25')
-        iraf.noao.digiphot.apphot.photpars.setParam('mkapert', 'yes')
+        photpars = iraf.noao.digiphot.apphot.photpars
+        self.initialize_parameters('iraf.noao.digiphot.apphot.photpars', photpars)
         for param in params:
-            iraf.noao.digiphot.apphot.photpars.setParam(param[0], param[1])
+            photpars.setParam(param[0], param[1])
 
     def set_fitskypars(self, params=[]):
         """Set fitskypars parameters for photometry."""
-        iraf.noao.digiphot(_doprint=0)
-        iraf.noao.digiphot.apphot(_doprint=0)
-        iraf.noao.digiphot.apphot.fitskypars.setParam('salgorithm', 'centroid')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('annulus', '25')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('dannulus', '5')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('skyvalue', '0')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('smaxiter', '10')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('sloclip', '0')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('shiclip', '0')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('snreject', '50')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('sloreject', '3')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('shireject', '3')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('khist', '3')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('binsize', '0.1')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('smooth', 'no')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('rgrow', '0')
-        iraf.noao.digiphot.apphot.fitskypars.setParam('mksky', 'yes')
+        fitskypars = iraf.noao.digiphot.apphot.fitskypars
+        self.initialize_parameters('iraf.noao.digiphot.apphot.fitskypars', fitskypars)
         for param in params:
-            iraf.noao.digiphot.apphot.fitskypars.setParam(param[0], param[1])
+            fitskypars.setParam(param[0], param[1])
 
     def set_findpars(self, params=[]):
         """Set findpars parameters for photometry."""
-        iraf.noao.digiphot(_doprint=0)
-        iraf.noao.digiphot.apphot(_doprint=0)
-        iraf.noao.digiphot.apphot.findpars.setParam('threshold', '8')
-        iraf.noao.digiphot.apphot.findpars.setParam('nsigma', '1.5')
-        iraf.noao.digiphot.apphot.findpars.setParam('ratio', '1')
-        iraf.noao.digiphot.apphot.findpars.setParam('theta', '0')
-        iraf.noao.digiphot.apphot.findpars.setParam('sharplo', '-5')
-        iraf.noao.digiphot.apphot.findpars.setParam('sharphi', '5')
-        iraf.noao.digiphot.apphot.findpars.setParam('roundlo', '-5')
-        iraf.noao.digiphot.apphot.findpars.setParam('roundhi', '5')
-        iraf.noao.digiphot.apphot.findpars.setParam('mkdetections', 'yes')
+        findpars = iraf.noao.digiphot.apphot.findpars
+        self.initialize_parameters('iraf.noao.digiphot.apphot.findpars', findpars)
         for param in params:
-            iraf.noao.digiphot.apphot.findpars.setParam(param[0], param[1])
+            findpars.setParam(param[0], param[1])
 
     def get_txdump(self, filemask, fields):
-        iraf.noao.digiphot(_doprint=0)
-        iraf.noao.digiphot.ptools(_doprint=0)
         return iraf.noao.digiphot.ptools.txdump(
             textfiles = filemask,
             fields = fields,
@@ -235,7 +239,6 @@ class PyRAF():
         )
 
     def run_rfits(self, raw_dir, output_dir):
-        iraf.dataio(_doprint=0)
         iraf.dataio.rfits(
             fits_file = raw_dir + '/*',
             file_list = '',
@@ -253,22 +256,21 @@ class PyRAF():
         )
 
     def run_daofind(self, output_dir, filename, coords='/tmp/default'):
-        iraf.noao.digiphot.apphot(_doprint=0)
-        iraf.noao.digiphot.apphot.daofind(
-            image = filename,
-            output = output_dir + coords,
-            starmap = '',
-            skymap = '',
-            datapars = '',
-            findpars = '',
-            boundary = 'nearest',
-            constant = 0,
-            interactive = 'no',
-            icommands = '',
-            gcommands = '',
-            verify = 'no',
-            cache = 0
-        )
+        daofind = iraf.noao.digiphot.apphot.daofind
+        daofind.image = filename
+        daofind.output = output_dir + coords
+        daofind.starmap = ''
+        daofind.skymap = ''
+        daofind.datapars = ''
+        daofind.findpars = ''
+        daofind.boundary = 'nearest'
+        daofind.constant = 0
+        daofind.interactive = 'no'
+        daofind.icommands = ''
+        daofind.gcommands = ''
+        daofind.verify = 'no'
+        daofind.cache = 0
+        daofind(filename)
 
     def run_phot(self, output_dir, filemask, coords='/tmp/default', mags='/tmp/default'):
         iraf.noao.digiphot.apphot.phot(
@@ -298,16 +300,13 @@ class PyRAF():
             tmp_file.write('{}, {}, {}\n'.format(c['x'][0], c['y'][0], coord))
         tmp_file.close()
         iraf.noao.obsutil(_doprint=0)
-        psf_out = iraf.noao.obsutil.psfmeasure(
-            images = filename,
-            iterations = 1,
-            logfile = '',
-            imagecur = tmp_file.name,
-            display = 'no',
-            Stdout = 1,
-            Stderr = '/dev/null',
-            StdoutG = '/dev/null'
-        )
+        psfmeasure = iraf.noao.obsutil.psfmeasure
+        psfmeasure.images = filename
+        psfmeasure.iterations = 1
+        psfmeasure.logfile = ''
+        psfmeasure.imagecur = tmp_file.name
+        psfmeasure.display = 'no'
+        psf_out = psfmeasure(filename, Stdout = 1, Stderr = '/dev/null', StdoutG = '/dev/null')
         os.unlink(tmp_file.name)
         fwhm = float(psf_out[-1].split('width at half maximum (FWHM) of ')[-1])
         self.logger.info('Found average FWHM of {} stars in image {}: {}'.format(len(coords.keys()), filename, fwhm))
@@ -316,30 +315,24 @@ class PyRAF():
     def create_zero(self, output_dir):
         """Creates a master zero image from a set of zero FITS cubes."""
         self.logger.info('Creating master zero...')
-        iraf.noao.imred(_doprint=0)
-        iraf.noao.imred.ccdred(_doprint=0)
-        iraf.noao.imred.ccdred.ccdproc.unlearn()
-        iraf.noao.imred.ccdred.zerocombine.unlearn()
-        iraf.noao.imred.ccdred.zerocombine(
-            input = output_dir + '/zero/*.fits',
-            output = output_dir + '/master/masterzero',
-            combine = 'average',
-            reject = 'minmax',
-            ccdtype = 'zero',
-            process = 'no',
-            delete = 'no',
-            clobber = 'no',
-            scale = 'none',
-            rdnoise = 8.8,
-            gain = 1.3
-        )
+        zerocombine = iraf.noao.imred.ccdred.zerocombine
+        self.initialize_parameters('iraf.noao.imred.ccdred.zerocombine', zerocombine)
+        zerocombine.input = output_dir + '/zero/*.fits'
+        zerocombine.output = output_dir + '/master/masterzero'
+        zerocombine.combine = 'average'
+        zerocombine.reject = 'minmax'
+        zerocombine.ccdtype = 'zero'
+        zerocombine.process = 'no'
+        zerocombine.delete = 'no'
+        zerocombine.clobber = 'no'
+        zerocombine.scale = 'none'
+        zerocombine.rdnoise = iraf.noao.digiphot.apphot.datapars.readnoise
+        zerocombine.gain = iraf.noao.digiphot.apphot.datapars.epadu
+        zerocombine._runCode()
 
     def apply_zero(self, output_dir):
         """Apply master zero image to a set of FITS cubes."""
         self.logger.info('Applying master zero to data files.')
-        iraf.noao.imred(_doprint=0)
-        iraf.noao.imred.ccdred(_doprint=0)
-        iraf.noao.imred.ccdred.ccdproc.unlearn()
         iraf.noao.imred.ccdred.ccdproc.output = ''
         iraf.noao.imred.ccdred.ccdproc.ccdtype = ''
         iraf.noao.imred.ccdred.ccdproc.max_cac = 0
@@ -373,10 +366,6 @@ class PyRAF():
     def create_dark(self, output_dir):
         """Creates a master dark image from a set of dark FITS cubes."""
         self.logger.info('Creating master dark...')
-        iraf.noao.imred(_doprint=0)
-        iraf.noao.imred.ccdred(_doprint=0)
-        iraf.noao.imred.ccdred.ccdproc.unlearn()
-        iraf.noao.imred.ccdred.darkcombine.unlearn()
         iraf.noao.imred.ccdred.ccdproc.output = ''
         iraf.noao.imred.ccdred.ccdproc.ccdtype = ''
         iraf.noao.imred.ccdred.ccdproc.max_cac = 0
@@ -398,26 +387,24 @@ class PyRAF():
         iraf.noao.imred.ccdred.ccdproc.zero = output_dir + '/master/masterzero'
         iraf.noao.imred.ccdred.ccdproc.dark = ''
         iraf.noao.imred.ccdred.ccdproc.flat = ''
-        iraf.noao.imred.ccdred.darkcombine(
-            input = output_dir + '/dark/*.fits',
-            output = output_dir + '/master/masterdark',
-            combine = 'median',
-            reject = 'minmax',
-            ccdtype = 'dark',
-            process = 'yes',
-            delete = 'no',
-            clobber = 'no',
-            scale = 'exposure',
-            rdnoise = 8.8,
-            gain = 1.3
-        )
+        darkcombine = iraf.noao.imred.ccdred.darkcombine
+        self.initialize_parameters('iraf.noao.imred.ccdred.darkcombine', darkcombine)
+        darkcombine.input = output_dir + '/dark/*.fits'
+        darkcombine.output = output_dir + '/master/masterdark'
+        darkcombine.combine = 'median'
+        darkcombine.reject = 'minmax'
+        darkcombine.ccdtype = 'dark'
+        darkcombine.process = 'yes'
+        darkcombine.delete = 'no'
+        darkcombine.clobber = 'no'
+        darkcombine.scale = 'exposure'
+        darkcombine.rdnoise = iraf.noao.digiphot.apphot.datapars.readnoise
+        darkcombine.gain = iraf.noao.digiphot.apphot.datapars.epadu
+        darkcombine._runCode()
 
     def apply_dark(self, output_dir):
         """Apply master dark image to a set of FITS cubes."""
         self.logger.info('Applying master dark to data files.')
-        iraf.noao.imred(_doprint=0)
-        iraf.noao.imred.ccdred(_doprint=0)
-        iraf.noao.imred.ccdred.ccdproc.unlearn()
         iraf.noao.imred.ccdred.ccdproc.output = ''
         iraf.noao.imred.ccdred.ccdproc.ccdtype = ''
         iraf.noao.imred.ccdred.ccdproc.max_cac = 0
@@ -450,10 +437,6 @@ class PyRAF():
     def create_flat(self, output_dir):
         """Creates a master flat image from a set of flat FITS cubes."""
         self.logger.info('Creating master flat...')
-        iraf.noao.imred(_doprint=0)
-        iraf.noao.imred.ccdred(_doprint=0)
-        iraf.noao.imred.ccdred.ccdproc.unlearn()
-        iraf.noao.imred.ccdred.flatcombine.unlearn()
         iraf.noao.imred.ccdred.ccdproc.output = ''
         iraf.noao.imred.ccdred.ccdproc.ccdtype = ''
         iraf.noao.imred.ccdred.ccdproc.max_cac = 0
@@ -475,28 +458,26 @@ class PyRAF():
         iraf.noao.imred.ccdred.ccdproc.zero = ''
         iraf.noao.imred.ccdred.ccdproc.dark = ''
         iraf.noao.imred.ccdred.ccdproc.flat = ''
-        iraf.noao.imred.ccdred.flatcombine(
-            input = output_dir + '/flat/*.fits',
-            output = output_dir + '/master/masterflat',
-            combine = 'median',
-            reject = 'avsigclip',
-            ccdtype = 'flat',
-            subsets = 'yes',
-            process = 'yes',
-            delete = 'no',
-            clobber = 'no',
-            statsec = '[700:1400:400:1100]',
-            scale = 'median',
-            rdnoise = 8.8,
-            gain = 1.3
-        )
+        flatcombine = iraf.noao.imred.ccdred.flatcombine
+        self.initialize_parameters('iraf.noao.imred.ccdred.flatcombine', flatcombine)
+        flatcombine.input = output_dir + '/flat/*.fits'
+        flatcombine.output = output_dir + '/master/masterflat'
+        flatcombine.combine = 'median'
+        flatcombine.reject = 'avsigclip'
+        flatcombine.ccdtype = 'flat'
+        flatcombine.subsets = 'yes'
+        flatcombine.process = 'yes'
+        flatcombine.delete = 'no'
+        flatcombine.clobber = 'no'
+        flatcombine.statsec = '[700:1400:400:1100]'
+        flatcombine.scale = 'median'
+        flatcombine.rdnoise = iraf.noao.digiphot.apphot.datapars.readnoise
+        flatcombine.gain = iraf.noao.digiphot.apphot.datapars.epadu
+        flatcombine._runCode()
 
     def apply_flat(self, output_dir):
         """Apply master flat image to a set of FITS cubes."""
         self.logger.info('Applying master flat to data files.')
-        iraf.noao.imred(_doprint=0)
-        iraf.noao.imred.ccdred(_doprint=0)
-        iraf.noao.imred.ccdred.ccdproc.unlearn()
         iraf.noao.imred.ccdred.ccdproc.output = ''
         iraf.noao.imred.ccdred.ccdproc.ccdtype = ''
         iraf.noao.imred.ccdred.ccdproc.max_cac = 0
@@ -643,7 +624,6 @@ class CurveOfGrowth(DiPhot):
         self.logger.info('Creating coords, mag for first science image.')
 
         files = self.pyraf.get_files_of_type(self.output_dir + '/object', 'object')
-
         file_num = int(len(files) / 2)
         cog_image = files[file_num]
         if self.cog_image:
@@ -679,13 +659,11 @@ class CurveOfGrowth(DiPhot):
 class Photometry(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'photometry')
-        self.fwhm = self.args.fwhm
-        self.aperture = self.args.aperture
 
     def arguments(self):
-        self.parser.add_argument('--fwhm', type=float, default=8.0,
+        self.parser.add_argument('--fwhm', type=float,
             help='FWHM')
-        self.parser.add_argument('--aperture', type=float, default=15.0,
+        self.parser.add_argument('--aperture', type=float,
             help='aperture size')
 
     def process(self):
@@ -723,16 +701,24 @@ class Photometry(DiPhot):
 
 class TxdumpParse(DiPhot):
     def __init__(self):
-        DiPhot.__init__(self, 'curveofgrowth')
-        self.px_threshold = 50.0
-        self.mag_threshold = 0.5
-        self.skip_px_threshold = 80.0
-        self.skip_mag_threshold = 1.0
-        self.assume = False
-        self.missing_tolerance_percent = 10
+        DiPhot.__init__(self, 'txdumpparse')
         self.data = []
 
     def arguments(self):
+        self.parser.add_argument('--px_threshold', '-p', type=float,
+            help='Pixel shift in X or Y direction to consider this the same star')
+        self.parser.add_argument('--mag_threshold', '-m', type=float,
+            help='Magnitude delta to consider this the same star')
+        self.parser.add_argument('--skip_px_threshold', '-sp', type=float,
+            help='Pixel shift in X or Y direction to not consider this the same star')
+        self.parser.add_argument('--skip_mag_threshold', '-sm', type=float,
+            help='Magnitude delta to not consider this the same star')
+        self.parser.add_argument('--tolerance', dest='missing_tolerance_percent', type=float,
+            help='Percentage of missing data points allowed to include in light curve')
+        self.parser.add_argument('--assume-true', action='store_true', dest='assume',
+            help='Assume stars more than mag/px thesholds but less than skip threshold are the same star')
+        self.parser.add_argument('--assume-false', action='store_false', dest='assume',
+            help='Assume stars more than mag/px thesholds but less than skip threshold are _not_ the same star')
         pass
 
     def process(self):
@@ -744,7 +730,17 @@ class TxdumpParse(DiPhot):
         final_dump = self.clean_dump(images, dump)
         self.organize_star_data(images, final_dump)
         self.write_csv()
+        self.found_target = self.find_target()
         # self.display_image()
+
+    def find_target(self):
+        for star in self.data:
+            x = star.data[0].x
+            y = star.data[0].y
+            if abs(x - self.target_x) < 10 and abs(y - self.target_y) < 10:
+                self.logger.info('Found target ID [{}]: ({}, {})'.format(star.star_id, x, y))
+                return star.star_id
+        return False
 
     def create_dump(self, dump_filename):
         mag_files = self.output_dir + '/mag/*.mag.1'
@@ -1045,16 +1041,18 @@ class LightCurve(DiPhot):
             binned[chunk_date] = {'mag': mag, 'merr': merr}
         self.points = binned
 
-    # def get_full_average(self):
-    #     avg_comp  = defaultdict(list)
-    #     for time in self.comp_data.keys():
-    #         date = datetime.strptime(time, '%H:%M:%S.%f')
-    #         avg_mag = self.avg([float(d[0]) for d in self.comp_data])
-    #         avg_merr = self.quad([float(d[1]) for d in self.comp_data])
-    #         avg_comp[date] = {'mag': avg_mag, 'merr': avg_merr}
-    #     self.avg_comp = avg_comp
+    def get_full_average(self):
+        avg_comp  = defaultdict(list)
+        for time in self.comp_data.keys():
+            date = datetime.strptime(time, '%H:%M:%S.%f')
+            avg_mag = self.avg([float(d[0]) for d in self.comp_data])
+            avg_merr = self.quad([float(d[1]) for d in self.comp_data])
+            avg_comp[date] = {'mag': avg_mag, 'merr': avg_merr}
+        self.avg_comp = avg_comp
 
     def create_comp_plots(self):
+        self.get_full_average()
+        avgs = [self.avg_comp[a]['mag'] for a in self.avg_comp]
         num_stars = len(self.raw_data)
         dim_x = int(math.ceil(math.sqrt(num_stars)))
         dim_y = int(math.ceil(math.sqrt(num_stars)))
@@ -1063,6 +1061,7 @@ class LightCurve(DiPhot):
             ax = axs[int(i/dim_x), i%dim_x]
             x = [datetime.strptime(p.time, '%H:%M:%S.%f') for p in star.data]
             y1 = [float(p.mag) for p in star.data]
+            # y1 = [float(p.mag) - float(q) for p, q in zip(star.data, avgs)]
             y2 = [float(p.merr) for p in star.data]
             self.create_plot(ax, x, y1)
             ax.set_title("Star ID " + str(star.star_id))

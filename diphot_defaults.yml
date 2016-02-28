@@ -1,0 +1,80 @@
+diphot:
+    debug: False
+    output_dir: output
+    raw_dir: input
+    fwhm: 8.0
+    aperture: 5.0
+    px_threshold: 70
+    mag_threshold: 0.5
+    skip_px_threshold: 100
+    skip_mag_threshold: 1.2
+    assume: False
+    missing_tolerance_percent: 10
+    filetypes: [zero, dark, flat, object]
+    target_x: ~
+    target_y: ~
+
+iraf.noao.digiphot.apphot.datapars:
+    scale: 1.0
+    fwhmpsf: 8
+    emission: yes
+    sigma: 30
+    datamin: 0
+    datamax: 65000
+    noise: poisson
+    ccdread: ""
+    gain: ""
+    readnoise: 8.8
+    epadu: 1.3
+    exposur: EXPTIME
+    airmass: AIRMASS
+    filter: FILTER
+    obstime: DATE-OBS
+    itime: INDEF
+    xairmass: INDEF
+    ifilter: INDEF
+    otime: INDEF
+
+iraf.noao.digiphot.apphot.centerpars:
+    calgorithm: centroid
+    cbox: 16
+    cthreshold: 0
+    minsnratio: 1
+    cmaxiter: 10
+    maxshift: 3
+    clean: no
+    mkcente: yes
+
+iraf.noao.digiphot.apphot.photpars:
+    weighting: constant
+    apertures: 15
+    zmag: 25
+    mkapert: yes
+
+iraf.noao.digiphot.apphot.fitskypars:
+    salgorithm: centroid
+    annulus: 25
+    dannulus: 5
+    skyvalue: 0
+    smaxiter: 10
+    sloclip: 0
+    shiclip: 0
+    snreject: 50
+    sloreject: 3
+    shireject: 3
+    khist: 3
+    binsize: 0.1
+    smooth: no
+    rgrow: 0
+    mksky: yes
+
+iraf.noao.digiphot.apphot.findpars:
+    threshold: 8
+    nsigma: 1.5
+    ratio: 1
+    theta: 0
+    sharplo: -5
+    sharphi: 5
+    roundlo: -5
+    roundhi: 5
+    mkdetections: yes

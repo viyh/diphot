@@ -17,5 +17,5 @@ if __name__ == '__main__':
         print "\n" + str(star)
         print star.data[0]
 
-    l = diphot.LightCurve(target_id=7, data=t.data)
+    l = diphot.LightCurve(target_id=t.found_target, data=t.data)
     l.process()
