@@ -1055,11 +1055,19 @@ class LightCurve(DiPhot):
         self.get_full_average()
         avgs = [self.avg_comp[a]['mag'] for a in self.avg_comp]
         num_stars = len(self.raw_data)
+        if num_stars == 0:
+            self.logger.info('No stars found! Try adjusting the tolerence percentage and max/px thresholds.')
+            sys.exit(0)
         dim_x = int(math.ceil(math.sqrt(num_stars)))
-        dim_y = int(math.ceil(math.sqrt(num_stars)))
+        dim_y = int(math.floor(math.sqrt(num_stars)))
         fig, axs = plt.subplots(dim_y, dim_x)
         for i, star in enumerate(self.raw_data):
-            ax = axs[int(i/dim_x), int(i%dim_x)]
+            if dim_x == 1:
+                ax = axs
+            elif dim_y == 1:
+                ax = axs[int(i%dim_x)]
+            else:
+                ax = axs[int(i/dim_x), int(i%dim_x)]
             x = [datetime.strptime(p.time, '%H:%M:%S.%f') for p in star.data]
             y1 = [float(p.mag) for p in star.data]
             # y1 = [float(p.mag) - float(q) for p, q in zip(star.data, avgs)]
