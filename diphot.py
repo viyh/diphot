@@ -82,7 +82,7 @@ class DiPhot():
     def config_merge(self, custom, default):
         if isinstance(custom, dict) and isinstance(default, dict):
             for k,v in default.iteritems():
-                if k not in user:
+                if k not in custom:
                     custom[k] = v
                 else:
                     custom[k] = merge(custom[k], v)
