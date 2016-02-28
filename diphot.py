@@ -957,7 +957,7 @@ class LightCurve(DiPhot):
         self.remove_ignored()
         self.separate_stars()
         # self.get_full_average()
-        if self.args.comp:
+        if not self.target_id or self.comp:
             self.create_comp_plots()
             sys.exit(0)
         self.calculate_differential()
