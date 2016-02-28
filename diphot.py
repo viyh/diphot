@@ -85,7 +85,7 @@ class DiPhot():
                 if k not in custom:
                     custom[k] = v
                 else:
-                    custom[k] = merge(custom[k], v)
+                    custom[k] = self.config_merge(custom[k], v)
         return custom
 
     def set_attributes(self):
