@@ -16,10 +16,10 @@ if __name__ == "__main__":
     g= diphot.CurveOfGrowth()
     g.process()
 
-    l = diphot.Photometry()
-    l.fwhm = g.fwhm
-    l.aperture = g.max_snr_aperture
-    l.process()
+    p = diphot.Photometry()
+    p.fwhm = g.fwhm
+    p.aperture = g.max_snr_aperture
+    p.process()
 
     t = diphot.TxdumpParse()
     t.process()
@@ -27,3 +27,6 @@ if __name__ == "__main__":
     for star in t.data:
         print "\n" + str(star)
         print star.data[0]
+
+    l = diphot.LightCurve(target_id=t.found_target, data=t.data)
+    l.process()
