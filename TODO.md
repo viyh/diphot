@@ -3,6 +3,7 @@ To Do:
 * Find out if greater precision for merr is possible
 * Add "skip" functionality for reduction (skip-flat, skip-zero, etc.)
 * Display average delta star comps
+* Rework data point/star objects
 
 Done:
 

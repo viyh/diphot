@@ -56,7 +56,7 @@ class DiPhot():
         self.config = self.init_parse_config()
         if hasattr(self.config['diphot'], 'debug'):
             self.debug = self.config['diphot']['debug']
-        self.args = self.init_parse_args()
+        self.init_parse_args()
         self.set_attributes()
         self.raw_dir = os.path.expanduser(self.raw_dir.rstrip('/'))
         self.output_dir = os.path.expanduser(self.output_dir.rstrip('/'))
@@ -66,7 +66,6 @@ class DiPhot():
         self.pyraf = PyRAF(self.config, self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
         self.pyraf.initialize_parameters()
-
 
     def process(self):
         raise("Process function not implemented!")
@@ -91,9 +90,8 @@ class DiPhot():
     def set_attributes(self):
         for k, v in self.config['diphot'].iteritems():
             if k == 'debug': continue
-            setattr(self, k, v)
-            if hasattr(self.args, k) and getattr(self.args, k):
-                setattr(self, k, getattr(self.args, k))
+            if not hasattr(self, k):
+                setattr(self, k, v)
             if self.debug:
                 print('Arg - {}: {}'.format(k, getattr(self, k)))
 
@@ -105,9 +103,9 @@ class DiPhot():
     def init_parse_args(self):
         self.parser = argparse.ArgumentParser(description='DiPhot - Differential Photometry')
         self.parser.add_argument('--debug', action='store_true', help='turn on debug messages')
-        self.parser.add_argument('-i', '--ignore_id', type=int, action='append', help='star to ignore')
+        self.parser.add_argument('--ignore_id', '-i', dest='ignore_ids', type=int, action='append', help='star to ignore')
         self.parser.add_argument('--comp', action='store_true', help='show individual star graphs')
-        return self.parser.parse_known_args(namespace=self)[0]
+        self.parser.parse_known_args(namespace=self)
 
     def cleanup_tmp(self, target_dir):
         self.logger.info("Cleaning up tmp directory.".format(target_dir + '/tmp'))
@@ -925,16 +923,14 @@ class LightCurve(DiPhot):
         self.binned_points = {}
         if not hasattr(self, 'target_id') or not self.target_id:
             self.target_id = target_id
-        self.ignore_ids = self.args.ignore_id
-        if not self.ignore_ids:
+        if not hasattr(self, 'ignore_ids') or not self.ignore_ids:
             self.ignore_ids = ignore_ids
 
     def process(self):
         self.logger.info('Creating light curve...')
         self.remove_ignored()
         self.separate_stars()
-        # self.get_full_average()
-        if (hasattr(self, 'comp') and self.comp) or not self.target_id:
+        if (hasattr(self, 'comp') and (self.comp) or not self.target_id):
             self.create_comp_plots()
             sys.exit(0)
         self.calculate_differential()
@@ -1019,40 +1015,43 @@ class LightCurve(DiPhot):
             binned[chunk_date] = {'mag': mag, 'merr': merr}
         self.points = binned
 
-    def get_full_average(self):
-        avg_comp  = defaultdict(list)
+    def get_comp_average(self):
+        avg_comp = []
         for time in self.comp_data.keys():
-            date = datetime.strptime(time, '%H:%M:%S.%f')
-            avg_mag = self.avg([float(d[0]) for d in self.comp_data])
-            avg_merr = self.quad([float(d[1]) for d in self.comp_data])
-            avg_comp[date] = {'mag': avg_mag, 'merr': avg_merr}
+            # avg_mag = self.avg([float(d[time][0]) for d in self.comp_data])
+            # avg_merr = self.quad([float(d[time][1]) for d in self.comp_data])
+            avg_comp.append(self.datapoint(0, time, self.comp_data[time][0], self.comp_data[time][1]))
         self.avg_comp = avg_comp
 
+    def create_comp_ax(self, axs, i, dim_x, dim_y, data, desc):
+        if dim_x == 1:
+            ax = axs
+        elif dim_y == 1:
+            ax = axs[int(i%dim_x)]
+        else:
+            ax = axs[int(i/dim_x), int(i%dim_x)]
+        x = [datetime.strptime(p.time, '%H:%M:%S.%f') for p in data]
+        y1 = [float(p.mag) for p in data]
+        y2 = [float(p.merr) for p in data]
+        self.create_plot(ax, x, y1)
+        ax.set_title(desc)
+
     def create_comp_plots(self):
-        self.get_full_average()
-        avgs = [self.avg_comp[a]['mag'] for a in self.avg_comp]
         num_stars = len(self.raw_data)
         if num_stars == 0:
             self.logger.info('No stars found! Try adjusting the tolerence percentage and max/px thresholds.')
             sys.exit(0)
+        num_stars += 1
         dim_x = int(math.ceil(math.sqrt(num_stars)))
         dim_y = int(math.ceil(math.sqrt(num_stars)))
         fig, axs = plt.subplots(dim_y, dim_x)
         for i, star in enumerate(self.raw_data):
-            if dim_x == 1:
-                ax = axs
-            elif dim_y == 1:
-                ax = axs[int(i%dim_x)]
-            else:
-                ax = axs[int(i/dim_x), int(i%dim_x)]
-            x = [datetime.strptime(p.time, '%H:%M:%S.%f') for p in star.data]
-            y1 = [float(p.mag) for p in star.data]
-            # y1 = [float(p.mag) - float(q) for p, q in zip(star.data, avgs)]
-            y2 = [float(p.merr) for p in star.data]
-            self.create_plot(ax, x, y1)
-            ax.set_title("Star ID " + str(star.star_id))
-            # ax.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
+            self.create_comp_ax(axs, i, dim_x, dim_y, star.data, "Star ID " + str(star.star_id))
+
+        self.get_comp_average()
+        self.create_comp_ax(axs, i+1, dim_x, dim_y, self.avg_comp, "Average")
         fig.autofmt_xdate()
+
         for i in range(num_stars, dim_x * dim_y):
             fig.delaxes(axs[int(i/dim_x), int(i%dim_x)])
         plt.show()
@@ -1105,5 +1104,16 @@ class LightCurve(DiPhot):
         time_fmt = dates.DateFormatter('%H:%M:%S')
         ax.xaxis.set_major_formatter(time_fmt)
         ax.set_xlabel('time')
-        ax.set_ylabel('diff mag', color='b')
+        ax.set_ylabel('mag', color='b')
         ax.set_xlim([min(x), max(x)])
+
+    class datapoint():
+        def __init__(self, star_id, time, mag, merr):
+            self.star_id = star_id
+            self.time = time
+            self.mag = mag
+            self.merr = merr
+
+        def __str__(self):
+            return 'Time: {}, Mag: {}, MErr: {}'.format(
+                self.time, self.mag, self.merr)
