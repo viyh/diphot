@@ -1,0 +1,13 @@
+diphot:
+    output_dir: ~/processed_output
+    raw_dir: ~/my_camera_files
+    target_x: 577.0
+    target_y: 407.0
+    px_threshold: 50
+    mag_threshold: 1.5
+    skip_px_threshold: 80
+    skip_mag_threshold: 2.2
+    missing_tolerance_percent: 15
+
+iraf.noao.digiphot.apphot.datapars:
+    sigma: 250

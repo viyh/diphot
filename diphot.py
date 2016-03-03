@@ -13,9 +13,12 @@ import logging, tempfile, csv, sys, math
 import os, shutil, glob, argparse
 import yaml
 import numpy as np
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
+from matplotlib import cm
 from matplotlib import dates
-from scipy.interpolate import interp1d
+import pyfits
+import astropy.time
+from scipy.interpolate import interp1d, griddata
 from pyraf import iraf
 from collections import defaultdict, OrderedDict
 from datetime import datetime
@@ -51,11 +54,9 @@ class DiPhot():
         os.environ.get('IRAFARCH','linux64')
         self.name = name
         self.config = self.init_parse_config()
-        self.args = self.init_parse_args()
         if hasattr(self.config['diphot'], 'debug'):
             self.debug = self.config['diphot']['debug']
-        if hasattr(self.args, 'debug'):
-            self.debug = self.args.debug
+        self.args = self.init_parse_args()
         self.set_attributes()
         self.raw_dir = os.path.expanduser(self.raw_dir.rstrip('/'))
         self.output_dir = os.path.expanduser(self.output_dir.rstrip('/'))
@@ -64,9 +65,8 @@ class DiPhot():
         self.cleanup_tmp(self.output_dir)
         self.pyraf = PyRAF(self.config, self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
+        self.pyraf.initialize_parameters()
 
-    def arguments(self):
-        raise("Arguments function not implemented!")
 
     def process(self):
         raise("Process function not implemented!")
@@ -104,30 +104,10 @@ class DiPhot():
 
     def init_parse_args(self):
         self.parser = argparse.ArgumentParser(description='DiPhot - Differential Photometry')
-        self.parser.add_argument('--raw_dir', type=str,
-            help='source directory of raw FITS files')
-        self.parser.add_argument('--output_dir', type=str,
-            help='destination directory for processed and master FITS files')
-        self.parser.add_argument('--target_x', '-x', type=float, dest='target_x',
-            help='approximate X pixel of target in first object image')
-        self.parser.add_argument('--target_y', '-y', type=float, dest='target_y',
-            help='approximate Y pixel of target in first object image')
-        self.parser.add_argument('--debug', action='store_true',
-            help='turn on debug messages')
-        self.arguments()
-        return self.parser.parse_known_args()[0]
-
-    def logger_init(self, log_name):
-        logger = logging.getLogger(__name__)
-        logger.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        handler = logging.FileHandler(self.output_dir + '/logs/' + log_name + '.log')
-        handler.setFormatter(formatter)
-        logger.addHandler(console)
-        logger.addHandler(handler)
-        return logger
+        self.parser.add_argument('--debug', action='store_true', help='turn on debug messages')
+        self.parser.add_argument('-i', '--ignore_id', type=int, action='append', help='star to ignore')
+        self.parser.add_argument('--comp', action='store_true', help='show individual star graphs')
+        return self.parser.parse_known_args(namespace=self)[0]
 
     def cleanup_tmp(self, target_dir):
         self.logger.info("Cleaning up tmp directory.".format(target_dir + '/tmp'))
@@ -195,45 +175,23 @@ class PyRAF(Singleton):
             Stdout = 1
         )
 
-    def initialize_parameters(self, section_name, instance):
-        if section_name not in self.config: return
-        for k, v in self.config[section_name].iteritems():
-            instance.setParam(k, v)
+    def initialize_parameters(self):
+        sections = [
+            'iraf.noao.digiphot.apphot.datapars',
+            'iraf.noao.digiphot.apphot.centerpars',
+            'iraf.noao.digiphot.apphot.photpars',
+            'iraf.noao.digiphot.apphot.fitskypars',
+            'iraf.noao.digiphot.apphot.findpars'
+        ]
+        for section_name in sections:
+            if section_name not in self.config: continue
+            self.set_params(section_name, params=self.config[section_name].items())
 
-    def set_datapars(self, params=[]):
-        """Set datapars parameters for photometry."""
-        datapars = iraf.noao.digiphot.apphot.datapars
-        self.initialize_parameters('iraf.noao.digiphot.apphot.datapars', datapars)
+    def set_params(self, ns, params=[]):
+        """Set PyRAF parameters"""
+        instance = eval(ns)
         for param in params:
-            datapars.setParam(param[0], param[1])
-
-    def set_centerpars(self, params=[]):
-        """Set centerpars parameters for photometry."""
-        centerpars = iraf.noao.digiphot.apphot.centerpars
-        self.initialize_parameters('iraf.noao.digiphot.apphot.centerpars', centerpars)
-        for param in params:
-            centerpars.setParam(param[0], param[1])
-
-    def set_photpars(self, params=[]):
-        """Set photpars parameters for photometry."""
-        photpars = iraf.noao.digiphot.apphot.photpars
-        self.initialize_parameters('iraf.noao.digiphot.apphot.photpars', photpars)
-        for param in params:
-            photpars.setParam(param[0], param[1])
-
-    def set_fitskypars(self, params=[]):
-        """Set fitskypars parameters for photometry."""
-        fitskypars = iraf.noao.digiphot.apphot.fitskypars
-        self.initialize_parameters('iraf.noao.digiphot.apphot.fitskypars', fitskypars)
-        for param in params:
-            fitskypars.setParam(param[0], param[1])
-
-    def set_findpars(self, params=[]):
-        """Set findpars parameters for photometry."""
-        findpars = iraf.noao.digiphot.apphot.findpars
-        self.initialize_parameters('iraf.noao.digiphot.apphot.findpars', findpars)
-        for param in params:
-            findpars.setParam(param[0], param[1])
+            instance.setParam(param[0], param[1])
 
     def get_txdump(self, filemask, fields):
         return iraf.noao.digiphot.ptools.txdump(
@@ -323,7 +281,6 @@ class PyRAF(Singleton):
         """Creates a master zero image from a set of zero FITS cubes."""
         self.logger.info('Creating master zero...')
         zerocombine = iraf.noao.imred.ccdred.zerocombine
-        self.initialize_parameters('iraf.noao.imred.ccdred.zerocombine', zerocombine)
         zerocombine.input = output_dir + '/zero/*.fits'
         zerocombine.output = output_dir + '/master/masterzero'
         zerocombine.combine = 'average'
@@ -395,7 +352,6 @@ class PyRAF(Singleton):
         iraf.noao.imred.ccdred.ccdproc.dark = ''
         iraf.noao.imred.ccdred.ccdproc.flat = ''
         darkcombine = iraf.noao.imred.ccdred.darkcombine
-        self.initialize_parameters('iraf.noao.imred.ccdred.darkcombine', darkcombine)
         darkcombine.input = output_dir + '/dark/*.fits'
         darkcombine.output = output_dir + '/master/masterdark'
         darkcombine.combine = 'median'
@@ -466,7 +422,6 @@ class PyRAF(Singleton):
         iraf.noao.imred.ccdred.ccdproc.dark = ''
         iraf.noao.imred.ccdred.ccdproc.flat = ''
         flatcombine = iraf.noao.imred.ccdred.flatcombine
-        self.initialize_parameters('iraf.noao.imred.ccdred.flatcombine', flatcombine)
         flatcombine.input = output_dir + '/flat/*.fits'
         flatcombine.output = output_dir + '/master/masterflat'
         flatcombine.combine = 'median'
@@ -525,9 +480,6 @@ class Reduce(DiPhot):
         self.filetypes = ['zero', 'dark', 'flat', 'object']
         self.initialize_type_dirs()
 
-    def arguments(self):
-        pass
-
     def process(self):
         self.logger.info('Creating IRAF FITS images...')
         self.pyraf.run_rfits(self.raw_dir, self.output_dir)
@@ -557,17 +509,9 @@ class Reduce(DiPhot):
 class CurveOfGrowth(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'curveofgrowth')
-        self.display = self.args.display
-        self.graph_file = self.args.graph_file
-        self.cog_image = self.args.cog_image
 
     def process(self):
         self.logger.info('Creating curve of growth...')
-        self.pyraf.set_datapars()
-        self.pyraf.set_centerpars()
-        self.pyraf.set_photpars()
-        self.pyraf.set_fitskypars()
-        self.pyraf.set_findpars()
         self.create_data_files()
 
     def parse_txdump(self, dump, fields):
@@ -599,14 +543,58 @@ class CurveOfGrowth(DiPhot):
         self.logger.info('Could not find stars with complete data set!'.format())
         sys.exit()
 
-    def create_plot(self):
+    def generate_psf_data(self, filename, radius):
+        hdulist = pyfits.open(filename)
+        scidata = hdulist[0].data
+        x_data, y_data, z_data = [], [], []
+        for y in range( int(self.target_y) - radius, int(self.target_y) + radius ):
+            for x in range( int(self.target_x) - radius, int(self.target_x) + radius ):
+                x_data.append(x)
+                y_data.append(y)
+                z_data.append(scidata[y][x])
+        self.logger.debug('Generating grid data...')
+        X, Y = np.meshgrid(x_data, y_data)
+        Z = griddata((x_data, y_data), z_data, (X, Y), method='linear')
+        return X, Y, Z
+
+    def generate_psf_graphs(self, X, Y, Z, radius):
+        plt.rcParams.update({'font.size': 10})
+        fig, ax = plt.subplots(1, 3, figsize=(9, 3))
+        cm = plt.get_cmap("jet")
+        stride = radius * 0.25
+        ax[0].contourf(Y, Z, X, zdir='x', cstride=stride, rstride=stride, offset=self.target_x - radius, cmap=cm, hold='on')
+        ax[0].set_xlabel('y')
+        ax[0].set_ylabel('counts')
+        ax[1].contourf(X, Z, Y, zdir='y', cstride=stride, rstride=stride, offset=self.target_y + radius, cmap=cm, hold='on')
+        ax[1].set_xlabel('x')
+        ax[1].set_ylabel('counts')
+        ax[2].contourf(X, Y, Z, zdir='z', cstride=stride, rstride=stride, offset=0, cmap=cm, hold='on')
+        ax[2].set_xlabel('x')
+        ax[2].set_ylabel('y')
+
+    def create_psf_plot(self, filename, radius=50):
+        if not self.display_psf or self.psf_graph_file: return
+        self.logger.info('Creating contour PSF plots (this can take a minute)...')
+        X, Y, Z = self.generate_psf_data(filename, radius)
+        self.logger.debug('Generating graphs...')
+        self.generate_psf_graphs(X, Y, Z, radius)
+        if self.display_psf:
+            plt.show()
+        if self.psf_graph_file:
+            self.logger.info('Creating curve of growth graph image: {}'.format(self.psf_graph_file))
+            plt.savefig(self.psf_graph_file)
+        plt.show()
+
+    def generate_cog_data(self):
         x_np = np.array(self.x)
         y1_np = np.array(self.y1)
         y2_np = np.array(self.y2)
         x_smooth = np.linspace(x_np.min(), x_np.max(), 200)
         y1_smooth = interp1d(x_np, y1_np, kind='cubic')(x_smooth)
         y2_smooth = interp1d(x_np, y2_np, kind='cubic')(x_smooth)
+        return x_smooth, y1_smooth, y2_smooth
 
+    def generate_cog_graph(self, x_smooth, y1_smooth, y2_smooth):
         fig, ax1 = plt.subplots()
         ax1.plot(x_smooth, y1_smooth, 'b-', lw=2)
         ax1.set_xlabel('Aperture (px)')
@@ -620,11 +608,17 @@ class CurveOfGrowth(DiPhot):
         ax2.set_ylim([0, max(self.y2) + max(self.y2)/20])
         plt.subplots_adjust(bottom=.13, left=.13, right=.85, top=.95)
 
-        if self.display:
+    def create_cog_plot(self):
+        if not self.display_cog or self.cog_graph_file: return
+        self.logger.info('Creating curve of growth graph...')
+        x_smooth, y1_smooth, y2_smooth = self.generate_cog_data()
+        self.logger.debug('Generating graphs...')
+        self.generate_cog_graph(x_smooth, y1_smooth, y2_smooth)
+        if self.display_cog:
             plt.show()
-        if self.graph_file:
-            self.logger.info('Creating curve of growth graph image: {}'.format(self.graph_file))
-            plt.savefig(self.graph_file)
+        if self.cog_graph_file:
+            self.logger.info('Creating curve of growth graph image: {}'.format(self.cog_graph_file))
+            plt.savefig(self.cog_graph_file)
 
     def create_data_files(self):
         """Create coord file (daofind) and mag file (phot) for first science image."""
@@ -643,9 +637,18 @@ class CurveOfGrowth(DiPhot):
         coords = self.parse_txdump(coord_dump, ['id', 'x', 'y'])
 
         self.fwhm = self.pyraf.run_psfmeasure(cog_image, coords)
-        iraf.noao.digiphot.apphot.datapars.setParam('fwhmpsf', self.fwhm)
-        iraf.noao.digiphot.apphot.centerpars.setParam('cbox', self.fwhm * 2.0)
-        iraf.noao.digiphot.apphot.photpars.setParam('apertures', '1:50:1')
+        self.pyraf.set_params(
+            ns='iraf.noao.digiphot.apphot.datapars',
+            params=[('fwhmpsf', self.fwhm)]
+        )
+        self.pyraf.set_params(
+            ns='iraf.noao.digiphot.apphot.centerpars',
+            params=[('cbox', self.fwhm * 2.0)]
+        )
+        self.pyraf.set_params(
+            ns='iraf.noao.digiphot.apphot.photpars',
+            params=[('apertures', '1:50:1')]
+        )
         self.pyraf.run_phot(self.output_dir, cog_image)
 
         mag_files = self.output_dir + '/tmp/' + os.path.basename(cog_image) + '.mag.*'
@@ -653,33 +656,27 @@ class CurveOfGrowth(DiPhot):
         mags = self.parse_txdump(mag_dump, ['id', 'aperture', 'mag', 'merr', 'flux'])
 
         self.get_data_points(mags)
-        self.create_plot()
-
-    def arguments(self):
-        self.parser.add_argument('--display', action='store_true',
-            help='display graph')
-        self.parser.add_argument('--graph_file', type=str, default=None,
-            help='output graph file name')
-        self.parser.add_argument('--cog_image', type=str, default=None,
-            help='image to use for curve of growth measurement')
+        self.create_cog_plot()
+        self.create_psf_plot(files[0])
 
 class Photometry(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'photometry')
 
-    def arguments(self):
-        self.parser.add_argument('--fwhm', type=float,
-            help='FWHM')
-        self.parser.add_argument('--aperture', type=float,
-            help='aperture size')
-
     def process(self):
         self.logger.info('Creating light curve...')
-        self.pyraf.set_datapars(params=[('fwhmpsf', self.fwhm)])
-        self.pyraf.set_centerpars(params=[('cbox', self.fwhm * 2.0)])
-        self.pyraf.set_photpars(params=[('apertures', self.aperture)])
-        self.pyraf.set_fitskypars()
-        self.pyraf.set_findpars()
+        self.pyraf.set_params(
+            ns='iraf.noao.digiphot.apphot.datapars',
+            params=[('fwhmpsf', self.fwhm)]
+        )
+        self.pyraf.set_params(
+            ns='iraf.noao.digiphot.apphot.centerpars',
+            params=[('cbox', self.fwhm * 2.0)]
+        )
+        self.pyraf.set_params(
+            ns='iraf.noao.digiphot.apphot.photpars',
+            params=[('apertures', self.aperture)]
+        )
         self.initialize_phot_dirs()
         self.create_data_files()
 
@@ -710,23 +707,6 @@ class TxdumpParse(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'txdumpparse')
         self.data = []
-
-    def arguments(self):
-        self.parser.add_argument('--px_threshold', '-p', type=float,
-            help='Pixel shift in X or Y direction to consider this the same star')
-        self.parser.add_argument('--mag_threshold', '-m', type=float,
-            help='Magnitude delta to consider this the same star')
-        self.parser.add_argument('--skip_px_threshold', '-sp', type=float,
-            help='Pixel shift in X or Y direction to not consider this the same star')
-        self.parser.add_argument('--skip_mag_threshold', '-sm', type=float,
-            help='Magnitude delta to not consider this the same star')
-        self.parser.add_argument('--tolerance', dest='missing_tolerance_percent', type=float,
-            help='Percentage of missing data points allowed to include in light curve')
-        self.parser.add_argument('--assume-true', action='store_true', dest='assume',
-            help='Assume stars more than mag/px thesholds but less than skip threshold are the same star')
-        self.parser.add_argument('--assume-false', action='store_false', dest='assume',
-            help='Assume stars more than mag/px thesholds but less than skip threshold are _not_ the same star')
-        pass
 
     def process(self):
         dump_file = self.output_dir + '/txdump.txt'
@@ -909,7 +889,6 @@ class TxdumpParse(DiPhot):
         return final_dump
 
     def display_image(self):
-        import pyfits
         fitsfile = self.output_dir + '/object/' + self.data[0].data[0].image
         hdulist = pyfits.open(fitsfile)
         tbdata = hdulist[0].data
@@ -944,22 +923,11 @@ class LightCurve(DiPhot):
         self.points = {}
         self.filtered_points = {}
         self.binned_points = {}
-        self.bin_size = self.args.bin
-        self.sigma = self.args.sigma
-        self.target_id = self.args.target_id
-        self.comp = self.args.comp
-        if not self.target_id:
+        if not hasattr(self, 'target_id') or not self.target_id:
             self.target_id = target_id
         self.ignore_ids = self.args.ignore_id
         if not self.ignore_ids:
             self.ignore_ids = ignore_ids
-
-    def arguments(self):
-        self.parser.add_argument('-t', '--target_id', type=int, help='target star ID')
-        self.parser.add_argument('--bin', type=int, default=1, help='data binning size')
-        self.parser.add_argument('--sigma', type=float, default=3.5, help='stddev to remove outlier data points')
-        self.parser.add_argument('-i', '--ignore_id', type=int, action='append', help='star to ignore')
-        self.parser.add_argument('--comp', action='store_true', help='show individual star graphs')
 
     def process(self):
         self.logger.info('Creating light curve...')
@@ -973,6 +941,7 @@ class LightCurve(DiPhot):
         self.remove_outliers()
         self.bin_data()
         self.create_diff_plot()
+        self.tresca_dump()
 
     def quad(self, arr):
         sqrs = [math.pow(float(a),2) for a in arr]
@@ -1036,14 +1005,14 @@ class LightCurve(DiPhot):
         mags = [p['mag'] for p in self.points.values()]
         median = np.median(mags)
         for date, value in self.points.iteritems():
-            if abs(value['mag'] - median) < self.sigma * np.std(mags):
+            if abs(value['mag'] - median) < self.lightcurve_sigma * np.std(mags):
                 filtered[date] = value
         self.points = filtered
 
     def bin_data(self):
         binned = {}
-        for i in xrange(0, len(self.points), self.bin_size):
-            chunk = self.points.keys()[i:i + self.bin_size]
+        for i in xrange(0, len(self.points), self.lightcurve_bin):
+            chunk = self.points.keys()[i:i + self.lightcurve_bin]
             chunk_date = self.avg(chunk)
             mag = self.med([self.points[date]['mag'] for date in chunk])
             merr = self.quad([self.points[date]['merr'] for date in chunk])
@@ -1101,6 +1070,33 @@ class LightCurve(DiPhot):
         ax2.set_xlim([min(x), max(x)])
         ax2.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
         plt.show()
+
+    def get_type_filelist(self, filetype):
+        filemask = self.output_dir + '/' + filetype + '/*.fits'
+        return sorted(glob.glob(filemask))
+
+    def get_julian_dates(self):
+        files = self.get_type_filelist('object')
+        dts = {}
+        for f in files:
+            hdulist = pyfits.open(f)
+            header = hdulist[0].header
+            dt = datetime.strptime(header['DATE-OBS'], '%Y-%m-%dT%H:%M:%S.%f')
+            jd = astropy.time.Time(dt).jd
+            dts[dt.strftime("%H:%M:%S")] = jd
+        return dts
+
+    def tresca_dump(self):
+        dts = self.get_julian_dates()
+        x = [dts[dates.num2date(k).strftime("%H:%M:%S")] for k in self.points.keys()]
+        y1 = [v['mag'] for v in self.points.values()]
+        y2 = [v['merr'] for v in self.points.values()]
+        rows = zip(x, y1, y2)
+        f = open(self.output_dir + '/tresca.csv', 'wb')
+        writer = csv.writer(f, delimiter = '\t')
+        writer.writerow(['JD', 'MAG', 'ERROR'])
+        for row in rows:
+            writer.writerow(row)
 
     def create_plot(self, ax, x, y1, y2=None):
         ax.plot_date(x, y1, 'b.')

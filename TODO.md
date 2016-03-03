@@ -2,12 +2,7 @@ To Do:
 
 * Find out if greater precision for merr is possible
 * Add "skip" functionality for reduction (skip-flat, skip-zero, etc.)
-* Create CLI arguments for everything
 * Display average delta star comps
-* Document config settings in comments
-* Add tresca dump functionality
-* Make compatible with dirac4
-    - dirac4 needs upgrade: numpy
 
 Done:
 
@@ -17,6 +12,12 @@ v0.2
 * Fix duplicate log messages from running multiple operations
 * Add x,y arguments
 * Implement target guess based of user provided coords of star in first image
+* Make compatible with dirac4
+    - dirac4 needs upgrade: numpy, matplotlib
+* Add PSF radial plots
+* Add tresca dump functionality
+* Fix argument parser
+* Document config settings in comments
 
 v0.1
 * Implement "use_new_imt = no" workaround for IRAF bug
