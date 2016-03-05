@@ -475,7 +475,6 @@ class Reduce(DiPhot):
         @type output_dir: str
         """
         DiPhot.__init__(self, 'reduce')
-        self.filetypes = ['zero', 'dark', 'flat', 'object']
         self.initialize_type_dirs()
 
     def process(self):
@@ -690,43 +689,35 @@ class Photometry(DiPhot):
         files = sorted(glob.glob(filemask))
         for i in range(0, len(files)/240 + 1):
             self.create_filelist(files, i)
-            self.pyraf.run_phot(self.output_dir, '@' + self.output_dir + '/images.list', coords='/coord/default', mags='/mag/default')
+            self.pyraf.run_phot(
+                self.output_dir, '@' + self.output_dir + '/images.list',
+                coords='/coord/default',
+                mags='/mag/default'
+            )
 
     def create_data_files(self):
         """Create coord file (daofind) and mag file (phot) for science images."""
         self.logger.info('Creating coords, mag for science images.')
         self.pyraf.run_daofind(self.output_dir, self.output_dir + '/object/*.fits', coords='/coord/default')
         self.do_photometry(self.output_dir + '/object/*.fits')
-        mag_files = self.output_dir + '/mag/*.mag.1'
-        mag_dump = self.pyraf.get_txdump(mag_files, 'IMAGE,ID,XCENTER,YCENTER,OTIME,MAG,MERR')
-        self.write_file_from_array(self.output_dir + '/txdump.txt', mag_dump)
 
 class TxdumpParse(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'txdumpparse')
-        self.data = []
+        self.txdump = Datarun()
+        self.reordered = Datarun()
 
     def process(self):
-        dump_file = self.output_dir + '/txdump.txt'
-        self.create_dump(dump_file)
-        points = self.read_dump(dump_file)
-        dump = self.sort_dump(points)
-        images = self.get_full_image_list(dump)
-        final_dump = self.clean_dump(images, dump)
-        self.organize_star_data(images, final_dump)
-        self.write_csv()
+        dump_filename = self.output_dir + '/txdump.txt'
+        self.create_dump(dump_filename)
+        self.read_dump(dump_filename)
+        self.txdump.sort_stars()
+        self.reorder_dump()
         self.found_target = self.find_target()
+        self.get_good_stars()
+        self.reordered.normalize_stars()
+        self.write_csv()
         # self.display_image()
-
-    def find_target(self):
-        if not self.target_x or not self.target_y: return False
-        for star in self.data:
-            x = star.data[0].x
-            y = star.data[0].y
-            if abs(x - self.target_x) < 10 and abs(y - self.target_y) < 10:
-                self.logger.info('Found target ID [{}]: ({}, {})'.format(star.star_id, x, y))
-                return star.star_id
-        return False
 
     def create_dump(self, dump_filename):
         mag_files = self.output_dir + '/mag/*.mag.1'
@@ -734,40 +725,10 @@ class TxdumpParse(DiPhot):
         self.write_file_from_array(self.output_dir + '/txdump.txt', mag_dump)
 
     def read_dump(self, dump_filename):
-        dump = defaultdict(list)
         with open(dump_filename) as dumpfile:
             for line in dumpfile.readlines():
-                print line
-                image, id, x, y, time, mag, merr = line.split()
-                dump[(image, time)].append({'x': float(x), 'y': float(y), 'mag': mag, 'merr': merr})
-        return OrderedDict(sorted(dump.items()))
-
-    def sort_dump(self, dump):
-        sorted_dump = defaultdict(OrderedDict)
-        for (image, time), data in dump.iteritems():
-            for star in data:
-                star_id = self.find_similar_star(sorted_dump, star, image, time)
-                if not star_id:
-                    star_id = self.get_new_star_id(sorted_dump)
-                    print 'New star found [{}]'.format(star_id)
-                    self.show_star(image, time, star)
-                sorted_dump[star_id][(image, time)] = star
-        return sorted_dump
-
-    def find_similar_star(self, sorted_dump, star, image, time):
-        if not sorted_dump:
-            return False
-        for star_id, star_data in sorted_dump.iteritems():
-            last_image, last_data = self.last(star_data)
-            if self.match_last(last_data, star):
-                return star_id
-        return self.manual_match(sorted_dump, star, image, time)
-
-    def get_new_star_id(self, sorted_dump):
-        if sorted_dump:
-            return max(sorted_dump.keys()) + 1
-        else:
-            return 1
+                image, star_id, x, y, date, mag, merr = line.split()
+                self.txdump.add_point(int(star_id), image, date, x, y, mag, merr)
 
     def px_test(self, c1, c2):
         return abs(c1 - c2) < self.px_threshold
@@ -775,149 +736,144 @@ class TxdumpParse(DiPhot):
     def skip_px_test(self, c1, c2):
         return abs(c1 - c2) > self.skip_px_threshold
 
-    def mag_test(self, star1, star2):
-        if not star1.has_key('mag') or not star2.has_key('mag'):
-            return True
-        return star1['mag'].strip() == 'INDEF' or \
-            star2['mag'].strip() == 'INDEF' or \
-            abs(float(star1['mag']) - float(star2['mag'])) < self.mag_threshold
+    def mag_test(self, m1, m2):
+        return not m1 or not m2 or \
+            abs(m1 - m2) < self.mag_threshold
 
-    def skip_mag_test(self, star1, star2):
-        if not star1.has_key('mag') or not star2.has_key('mag'):
-            return False
-        return star1['mag'].strip() != 'INDEF' and \
-            star2['mag'].strip() != 'INDEF' and \
-            abs(float(star1['mag']) - float(star2['mag'])) > self.skip_mag_threshold
+    def skip_mag_test(self, m1, m2):
+        return m1 and m2 and \
+            abs(m1 - m2) > self.skip_mag_threshold
 
-    def match_last(self, last_data, star):
-        return self.px_test(last_data['x'], star['x']) and \
-            self.px_test(last_data['y'], star['y']) and \
-            self.mag_test(last_data, star)
+    def match_point(self, p1, p2):
+        return self.px_test(p1.x, p2.x) and \
+            self.px_test(p1.y, p2.y) and \
+            self.mag_test(p1.mag, p2.mag)
 
-    def match_last_skip(self, last_data, star):
-        return self.skip_px_test(last_data['x'], star['x']) or \
-            self.skip_px_test(last_data['y'], star['y']) or \
-            self.skip_mag_test(last_data, star)
+    def match_point_skip(self, p1, p2):
+        return self.skip_px_test(p1.x, p2.x) or \
+            self.skip_px_test(p1.y, p2.y) or \
+            self.skip_mag_test(p1.mag, p2.mag)
 
-    def show_star(self, image, time, star):
-        print('Image:\t{}'.format(image))
-        print('Time:\t{}'.format(time))
-        print('X:\t{}'.format(star['x']))
-        print('Y:\t{}'.format(star['y']))
-        print('Mag:\t{}'.format(star['mag']))
-        print('MErr:\t{}'.format(star['merr']))
+    def reorder_dump(self):
+        for image in self.txdump.get_image_list():
+            for point in self.txdump.get_image_points(image):
+                match_id = self.find_star(point, image)
+                s = None
+                if match_id:
+                    s = self.reordered.get_star(match_id)
+                else:
+                    s = self.reordered.new_star()
+                p = s.add_point(point.image, point.date, point.x, point.y, point.mag, point.merr)
 
-    def manual_match(self, sorted_dump, star, image, time):
-        print "\n\n" + "=" * 50
-        self.show_star(image, time, star)
+    def get_reverse_image_list(self, image):
+        image_list = self.reordered.get_image_list()[::-1]
+        if not image_list: return False
+        image_index = -1
+        if image in image_list:
+            image_index = image_list.index(image)
+        return image_list[image_index+1:]
+
+    def find_star(self, point, image):
+        image_list = self.get_reverse_image_list(image)
+        if not image_list: return False
+        for r_image in image_list:
+            if r_image == image: break
+            for test_point in self.reordered.get_image_points(r_image):
+                s = self.reordered.get_star(test_point.star_id)
+                if self.match_point(point, test_point) and not s.get_point(image):
+                    return test_point.star_id
+        return self.manual_match(point, image)
+
+    def manual_match(self, point, image):
+        if self.assume == False: return False
+        print "\n" + "=" * 50
+        print "txdump: " + str(point)
         print "=" * 50 + "\n"
-        for star_id, star_data in sorted_dump.iteritems():
-            last_image, last_data = self.last(star_data)
-            if last_image == (image, time): continue
-            if self.match_last_skip(last_data, star): continue
-            if self.assume == False: continue
-            if self.assume == True: return star_id
-            self.show_star(last_image[0], last_image[1], last_data)
-            print "\nIs this the above star (y/N)?",
-            if raw_input().lower() == 'y':
-                print '\n'
-                return star_id
-            print '\n'
+        image_list = self.get_reverse_image_list(image)
+        if not image_list: return False
+        for r_image in image_list:
+            if r_image == image: break
+            for test_point in self.reordered.get_image_points(r_image):
+                s = self.reordered.get_star(test_point.star_id)
+                if s.get_point(image): continue
+                if self.match_point_skip(point, test_point): continue
+                if self.assume == True: return test_point.star_id
+                print test_point,
+                print "\t\tIs this the above star (y/N)?",
+                if raw_input().lower() == 'y':
+                    print '\n'
+                    return test_point.star_id
         return False
 
-    def last(self, ordered_dict):
-        key = next(reversed(ordered_dict))
-        return (key, ordered_dict[key])
+    def get_good_stars(self):
+        self.final = Datarun()
+        num_images = len(self.reordered.get_image_list())
+        for star in self.reordered.stars:
+            diff = num_images - len(star.points)
+            if diff == 0:
+                print "[Star {}] - Complete data set!".format(star.star_id)
+            elif self.debug:
+                print "[Star {}] - Incomplete data set: [missing {:5d} datapoints out of {}]".format(star.star_id, diff, num_images)
+            if float( diff ) / float ( num_images ) * 100.0 < self.missing_tolerance_percent:
+                self.logger.info("Found star within tolerance: [ID: {:4d}]], missing [{:4d}] datapoint(s) out of [{}]!".format(star.star_id, diff, num_images))
+                self.final.stars.append(star)
+        if self.found_target and not self.final.has_star(self.found_target):
+            self.logger.info('Target star data is not within tolerence! Try adjusting the tolerence percentage and max/px thresholds.')
+            sys.exit(0)
 
-    def get_row(self, star, point):
+    def find_target(self):
+        if not self.target_x or not self.target_y: return False
+        for star in self.reordered.stars:
+            if abs(star.points[0].x - self.target_x) < 10 and abs(star.points[0].y - self.target_y) < 10:
+                self.logger.info('Found target ID [{}]: ({}, {})'.format(star.star_id, star.points[0].x, star.points[0].y))
+                return star.star_id
+        self.logger.info('Could not find any matching target star: ({}, {})'.format(star.points[0].x, star.points[0].y))
+        return False
+
+    def get_row(self, point):
         return [
-            star.star_id,
+            point.star_id,
             point.image,
-            point.time,
+            point.date,
             '{:.3f}'.format(point.x),
             '{:.3f}'.format(point.y),
             '{}'.format(point.mag),
             '{}'.format(point.merr)
         ]
 
-    def normalize_star_data(self, images, star, datapoints):
-        for image, time in sorted(images):
-            if datapoints.has_key((image, time)):
-                datapoint = self.point(image=image, time=time, **datapoints[(image, time)])
-                if datapoint.mag == 'INDEF':
-                    datapoint.mag = np.nan
-                if datapoint.merr == 'INDEF':
-                    datapoint.merr = np.nan
-            else:
-                datapoint = self.point(image=image, time=time, x=0, y=0, mag=np.nan, merr=np.nan)
-            star.data.append(datapoint)
-
-    def organize_star_data(self, images, sorted_dump):
-        for star, datapoints in sorted_dump.iteritems():
-            s = self.star(star_id=star, data=[])
-            data = self.normalize_star_data(images, s, datapoints)
-            self.data.append(s)
-
     def write_csv(self):
-        with open(self.output_dir + '/data.csv', 'w') as csvfile:
-            csvhandle = csv.writer(csvfile, delimiter=',')
-            csvhandle.writerow(['id', 'image', 'time', 'x', 'y', 'mag', 'merr'])
-            for star in self.data:
-                for point in star.data:
-                    csvhandle.writerow(self.get_row(star, point))
+        csvfile = open(self.output_dir + '/data.csv', 'w')
+        csvhandle = csv.writer(csvfile, delimiter=',')
+        csvhandle.writerow(['id', 'image', 'date', 'x', 'y', 'mag', 'merr'])
+        for star in self.reordered.stars:
+            for point in star.points:
+                csvhandle.writerow(self.get_row(point))
 
-    def get_full_image_list(self, dump):
-        images = set()
-        for star in dump:
-            images |= set(dump[star].keys())
-        return images
+    # def display_image(self):
+    #     fitsfile = self.output_dir + '/object/' + self.data[0].data[0].image
+    #     hdulist = pyfits.open(fitsfile)
+    #     tbdata = hdulist[0].data
+    #     filtered = tbdata[~self.is_outlier(tbdata)]
+    #     plt.hist(filtered)
+    #     plt.show()
+    #     plt.imshow(filtered, cmap='gray')
+    #     plt.colorbar()
+    #     plt.show()
 
-    def clean_dump(self, images, dump):
-        final_dump = defaultdict(OrderedDict)
-        for star, values in dump.iteritems():
-            star_images = set(values.keys())
-            diff = set(images).difference(star_images)
-            if diff:
-                print "[Star {}] - Incomplete data set: [missing {} datapoints out of {}]".format(star, len(diff), len(images))
-            else:
-                print "[Star {}] - Complete data set!".format(star)
-            if float( len(diff) ) / float ( len(images) ) * 100.0 < self.missing_tolerance_percent:
-                print "Saving star [{}]!".format(star)
-                final_dump[star] = values
-        return final_dump
-
-    def display_image(self):
-        fitsfile = self.output_dir + '/object/' + self.data[0].data[0].image
-        hdulist = pyfits.open(fitsfile)
-        tbdata = hdulist[0].data
-        plt.imshow(tbdata, cmap='gray')
-        plt.colorbar()
-
-    class star():
-        def __init__(self, star_id=None, data=[]):
-            self.star_id = star_id
-            self.data = data
-
-        def __str__(self):
-            return 'Star [{}]'.format(self.star_id)
-
-    class point():
-        def __init__(self, time, image, x , y, mag, merr):
-            self.time = time
-            self.image = image
-            self.x = x
-            self.y = y
-            self.mag = mag
-            self.merr = merr
-
-        def __str__(self):
-            return 'Image: {}, Time: {}, X: {:.3f}, Y: {:.3f}, Mag: {}, MErr: {}'.format(
-                self.image, self.time, self.x, self.y, self.mag, self.merr)
+    # def is_outlier(self, points, thresh=1.5):
+    #     if len(points.shape) == 1:
+    #         points = points[:,None]
+    #     median = np.median(points, axis=0)
+    #     diff = np.sum((points - median)**2, axis=-1)
+    #     diff = np.sqrt(diff)
+    #     med_abs_deviation = np.median(diff)
+    #     modified_z_score = 0.6745 * diff / med_abs_deviation
+    #     return modified_z_score > thresh
 
 class LightCurve(DiPhot):
-    def __init__(self, target_id=None, data=[], ignore_ids=[]):
+    def __init__(self, target_id=None, datarun=None, ignore_ids=[]):
         DiPhot.__init__(self, 'lightcurve')
-        self.raw_data = data
+        self.datarun = datarun
         self.points = {}
         self.filtered_points = {}
         self.binned_points = {}
@@ -929,7 +885,7 @@ class LightCurve(DiPhot):
     def process(self):
         self.logger.info('Creating light curve...')
         self.remove_ignored()
-        self.separate_stars()
+        self.get_comp_average()
         if (hasattr(self, 'comp') and (self.comp) or not self.target_id):
             self.create_comp_plots()
             sys.exit(0)
@@ -939,62 +895,18 @@ class LightCurve(DiPhot):
         self.create_diff_plot()
         self.tresca_dump()
 
-    def quad(self, arr):
-        sqrs = [math.pow(float(a),2) for a in arr]
-        return math.sqrt(sum(sqrs))
-
-    def avg(self, arr):
-        return np.average(arr)
-
-    def med(self, arr):
-        return np.median(arr)
-
-    def numpy_zip(self, x, y):
-        return np.array(zip(x, y), dtype=[('x',float),('y',float)])
-
     def remove_ignored(self):
-        self.raw_data = [s for s in self.raw_data if s.star_id not in self.ignore_ids]
+        self.datarun.stars = [s for s in self.datarun.stars if s.star_id not in self.ignore_ids]
 
-    def separate_stars(self):
-        stars = defaultdict(list)
-        for star in self.raw_data:
-            for point in star.data:
-                stars[point.time].append((star.star_id, point.mag, point.merr))
-        for time in sorted(stars.keys()):
-            if np.nan in [p[1] for p in stars[time]] or np.nan in [p[2] for p in stars[time]]:
-                stars.pop(time, None)
-        self.target_data = self.get_target_data(stars)
-        self.comp_data = self.get_comp_data(stars)
-
-    def get_comp_data(self, stars):
-        times = sorted(stars.keys())
-        comp = OrderedDict()
-        for time in times:
-            for i, (star_id, mag, merr) in enumerate(stars[time]):
-                if star_id == self.target_id:
-                    del(stars[time][i])
-        for time in times:
-            mags = [float(p[1]) for p in stars[time]]
-            avg_mag = self.avg(mags)
-            avg_merr = self.quad([p[2] for p in stars[time]])
-            comp[time] = (avg_mag, avg_merr)
-        return comp
-
-    def get_target_data(self, stars):
-        times = sorted(stars.keys())
-        target = OrderedDict()
-        for time in times:
-            for i, (star_id, mag, merr) in enumerate(stars[time]):
-                if star_id == self.target_id:
-                    target[time] = (float(mag), float(merr))
-        return target
+    def get_target(self):
+        return self.datarun.get_star(self.target_id)
 
     def calculate_differential(self):
-        for time in self.comp_data.keys():
-            date = datetime.strptime(time, '%H:%M:%S.%f')
-            diff_mag = abs(self.target_data[time][0] - self.comp_data[time][0])
-            diff_merr = self.quad([self.comp_data[time][1], self.target_data[time][1]])
-            self.points[dates.date2num(date)] = {'mag': diff_mag, 'merr': diff_merr}
+        for image, date in self.datarun.get_image_date_list():
+            date = datetime.strptime(date, '%H:%M:%S.%f')
+            if self.datarun.has_nan_point(image): continue
+            diff = self.datarun.get_diff_mag(self.target_id, image)
+            self.points[dates.date2num(date)] = {'mag': diff[0], 'merr': diff[1]}
 
     def remove_outliers(self):
         filtered = {}
@@ -1009,19 +921,17 @@ class LightCurve(DiPhot):
         binned = {}
         for i in xrange(0, len(self.points), self.lightcurve_bin):
             chunk = self.points.keys()[i:i + self.lightcurve_bin]
-            chunk_date = self.avg(chunk)
-            mag = self.med([self.points[date]['mag'] for date in chunk])
-            merr = self.quad([self.points[date]['merr'] for date in chunk])
+            chunk_date = self.datarun.avg(chunk)
+            mag = self.datarun.med([self.points[date]['mag'] for date in chunk])
+            merr = self.datarun.quad([self.points[date]['merr'] for date in chunk])
             binned[chunk_date] = {'mag': mag, 'merr': merr}
         self.points = binned
 
     def get_comp_average(self):
-        avg_comp = []
-        for time in self.comp_data.keys():
-            # avg_mag = self.avg([float(d[time][0]) for d in self.comp_data])
-            # avg_merr = self.quad([float(d[time][1]) for d in self.comp_data])
-            avg_comp.append(self.datapoint(0, time, self.comp_data[time][0], self.comp_data[time][1]))
-        self.avg_comp = avg_comp
+        self.comp_avg = Star(star_id=0)
+        for image, date in self.datarun.get_image_date_list():
+            (mag, merr) = self.datarun.get_comp_mag(self.target_id, image)
+            self.comp_avg.add_point(image=image, date=date, mag=mag, merr=merr)
 
     def create_comp_ax(self, axs, i, dim_x, dim_y, data, desc):
         if dim_x == 1:
@@ -1030,14 +940,14 @@ class LightCurve(DiPhot):
             ax = axs[int(i%dim_x)]
         else:
             ax = axs[int(i/dim_x), int(i%dim_x)]
-        x = [datetime.strptime(p.time, '%H:%M:%S.%f') for p in data]
+        x = [datetime.strptime(p.date, '%H:%M:%S.%f') for p in data]
         y1 = [float(p.mag) for p in data]
         y2 = [float(p.merr) for p in data]
         self.create_plot(ax, x, y1)
         ax.set_title(desc)
 
     def create_comp_plots(self):
-        num_stars = len(self.raw_data)
+        num_stars = len(self.datarun.stars)
         if num_stars == 0:
             self.logger.info('No stars found! Try adjusting the tolerence percentage and max/px thresholds.')
             sys.exit(0)
@@ -1045,11 +955,10 @@ class LightCurve(DiPhot):
         dim_x = int(math.ceil(math.sqrt(num_stars)))
         dim_y = int(math.ceil(math.sqrt(num_stars)))
         fig, axs = plt.subplots(dim_y, dim_x)
-        for i, star in enumerate(self.raw_data):
-            self.create_comp_ax(axs, i, dim_x, dim_y, star.data, "Star ID " + str(star.star_id))
+        for i, star in enumerate(self.datarun.stars):
+            self.create_comp_ax(axs, i, dim_x, dim_y, star.points, "Star ID " + str(star.star_id))
 
-        self.get_comp_average()
-        self.create_comp_ax(axs, i+1, dim_x, dim_y, self.avg_comp, "Average")
+        self.create_comp_ax(axs, i+1, dim_x, dim_y, self.comp_avg.points, "Average")
         fig.autofmt_xdate()
 
         for i in range(num_stars, dim_x * dim_y):
@@ -1117,3 +1026,178 @@ class LightCurve(DiPhot):
         def __str__(self):
             return 'Time: {}, Mag: {}, MErr: {}'.format(
                 self.time, self.mag, self.merr)
+
+class Datarun(object):
+    def __init__(self, date_start=None, date_end=None, stars=[]):
+        self.date_start = date_start
+        self.date_end = date_end
+        self.stars = []
+        self.sort_stars()
+
+    def __str__(self):
+        return 'Datarun [{} to {}]'.format(self.date_start, self.date_end)
+
+    def quad(self, arr):
+        sqrs = [math.pow(float(a),2) for a in arr]
+        return math.sqrt(sum(sqrs))
+
+    def avg(self, arr):
+        return np.average(arr)
+
+    def med(self, arr):
+        return np.median(arr)
+
+    def get_comp_mag(self, target_id, image):
+        points = self.get_image_points(image)
+        mag = self.avg([p.mag for p in points if p.star_id != target_id])
+        merr = self.quad([p.merr for p in points if p.star_id != target_id])
+        return (mag, merr)
+
+    def get_target_mag(self, target_id, image):
+        p = self.get_image_star_point(image, target_id)
+        if p: return (p.mag, p.merr)
+        return False
+
+    def get_image_star_point(self, image, star_id):
+        points = self.get_image_points(image)
+        for p in points:
+            if p.star_id == star_id: return p
+        return False
+
+    def get_diff_mag(self, target_id, image):
+        comp = self.get_comp_mag(target_id, image)
+        target = self.get_target_mag(target_id, image)
+        if target and comp:
+            diff_mag = abs(target[0] - comp[0])
+            diff_merr = self.quad([target[1] + comp[1]])
+            return (diff_mag, diff_merr)
+        return False
+
+    def get_image_list(self):
+        return sorted(list(set([p.image for s in self.stars for p in s.points])))
+
+    def get_image_date_list(self):
+        return sorted(list(set([(p.image, p.date) for s in self.stars for p in s.points])), key=lambda p: p[0])
+
+    def get_image_date(self, image):
+        return self.get_image_points(image)[0].date
+
+    def previous_image(self, image):
+        images = self.get_image_list()
+        if images.index(image) < 1:
+            return False
+        return images[images.index(image) - 1]
+
+    def get_image_stars(self, image):
+        stars = []
+        for s in self.stars:
+            for p in s.points:
+                if p.image == image:
+                    stars.append(s)
+        return sorted(list(set(stars)), key=lambda s: s.star_id)
+
+    def get_image_points(self, image):
+        points = []
+        for s in self.get_image_stars(image):
+            for p in s.points:
+                if p.image == image:
+                    points.append(p)
+        return sorted(list(set(points)), key=lambda p: (p.star_id, p.y))
+
+    def has_nan_point(self, image):
+        points = self.get_image_points(image)
+        for p in points:
+            if np.isnan(p.mag) or np.isnan(p.merr):
+                return True
+        return False
+
+    def new_star(self, star_id=None):
+        if not star_id:
+            star_id = self.next_star_id()
+        if self.has_star(star_id):
+            return self.get_star(star_id)
+        star = Star(
+            star_id=star_id
+        )
+        self.stars.append(star)
+        return star
+
+    def has_star(self, star_id):
+        return star_id in [s.star_id for s in self.stars]
+
+    def next_star_id(self):
+        if not self.stars:
+            return 1
+        return max([s.star_id for s in self.stars]) + 1
+
+    def get_star(self, star_id):
+        if not star_id:
+            return self.new_star()
+        for s in self.stars:
+            if s.star_id == star_id:
+                return s
+        return self.new_star(star_id)
+
+    def add_point(self, star_id=None, image=None, date=None, x=None, y=None, mag=None, merr=None):
+        star = self.get_star(star_id)
+        star.add_point(image, date, x, y, mag, merr)
+        return star
+
+    def normalize_stars(self):
+        for image, date in self.get_image_date_list():
+            for star in self.stars:
+                p = star.get_point(image)
+                if not p:
+                    star.add_point(image=image, date=date)
+        self.sort_stars()
+
+    def sort_stars(self):
+        self.stars = sorted(self.stars, key=lambda s: s.star_id)
+        for s in self.stars:
+            s.points = sorted(s.points, key=lambda p: p.image)
+
+class Star(object):
+    def __init__(self, star_id):
+        self.star_id = int(star_id)
+        self.points = []
+
+    def __str__(self):
+        return 'Star [{}], {} points'.format(self.star_id, len(self.points))
+
+    def add_point(self, image=None, date=None, x=None, y=None, mag=None, merr=None):
+        point = Point(
+            star_id=self.star_id,
+            image=image,
+            date=date,
+            x=x,
+            y=y,
+            mag=mag,
+            merr=merr
+        )
+        self.points.append(point)
+        return point
+
+    def get_point(self, image):
+        for p in self.points:
+            if p.image == image: return p
+        return False
+
+class Point(object):
+    def __init__(self, star_id=None, image=None, date=None, x=None , y=None, mag=None, merr=None):
+        self.image = image
+        self.star_id = star_id
+        self.date = date
+        self.set_float('x', x)
+        self.set_float('y', y)
+        self.set_float('mag', mag)
+        self.set_float('merr', merr)
+
+    def __str__(self):
+        return 'Point [{}] [Star: {}] [{}, ({}, {}) [{}]\tErr: {}]'.format(self.image, self.star_id, self.date, self.x, self.y, self.mag, self.merr)
+
+    def set_float(self, attr, value):
+        try:
+            value = float(value)
+        except:
+            value = np.nan
+        setattr(self, attr, value)

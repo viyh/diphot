@@ -4,6 +4,7 @@ To Do:
 * Add "skip" functionality for reduction (skip-flat, skip-zero, etc.)
 * Display average delta star comps
 * Rework data point/star objects
+* Update README
 
 Done:
 
