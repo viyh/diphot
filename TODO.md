@@ -3,10 +3,12 @@ To Do:
 * Find out if greater precision for merr is possible
 * Add "skip" functionality for reduction (skip-flat, skip-zero, etc.)
 * Display average delta star comps
-* Rework data point/star objects
 * Update README
 
 Done:
+
+v0.3
+* Code refactor: Rework data point/star objects
 
 v0.2
 * Fix trailing slash failures on inputted directory names
