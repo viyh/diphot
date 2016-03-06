@@ -9,6 +9,8 @@
 
 __version__ = '0.3'
 
+from profilehooks import profile
+
 import logging, tempfile, csv, sys, math
 import os, shutil, glob, argparse
 import yaml
@@ -63,6 +65,8 @@ class DiPhot():
         self.initialize_dirs()
         self.logger = Logger(self).logger
         self.cleanup_tmp(self.output_dir)
+
+    def pyraf_init(self):
         self.pyraf = PyRAF(self.config, self.logger, self.debug)
         self.pyraf.initialize_instrument(self.output_dir)
         self.pyraf.initialize_parameters()
@@ -475,6 +479,7 @@ class Reduce(DiPhot):
         @type output_dir: str
         """
         DiPhot.__init__(self, 'reduce')
+        self.pyraf_init()
         self.initialize_type_dirs()
 
     def process(self):
@@ -506,6 +511,7 @@ class Reduce(DiPhot):
 class CurveOfGrowth(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'curveofgrowth')
+        self.pyraf_init()
 
     def process(self):
         self.logger.info('Creating curve of growth...')
@@ -659,6 +665,7 @@ class CurveOfGrowth(DiPhot):
 class Photometry(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'photometry')
+        self.pyraf_init()
 
     def process(self):
         self.logger.info('Creating light curve...')
@@ -704,6 +711,7 @@ class Photometry(DiPhot):
 class TxdumpParse(DiPhot):
     def __init__(self):
         DiPhot.__init__(self, 'txdumpparse')
+        self.pyraf_init()
         self.txdump = Datarun()
         self.reordered = Datarun()
 
@@ -720,11 +728,14 @@ class TxdumpParse(DiPhot):
         # self.display_image()
 
     def create_dump(self, dump_filename):
+        if self.debug:
+            self.logger.debug('Creating txdump file')
         mag_files = self.output_dir + '/mag/*.mag.1'
         mag_dump = self.pyraf.get_txdump(mag_files, 'IMAGE,ID,XCENTER,YCENTER,OTIME,MAG,MERR')
         self.write_file_from_array(self.output_dir + '/txdump.txt', mag_dump)
 
     def read_dump(self, dump_filename):
+        self.logger.debug('Reading txdump')
         with open(dump_filename) as dumpfile:
             for line in dumpfile.readlines():
                 image, star_id, x, y, date, mag, merr = line.split()
@@ -755,13 +766,16 @@ class TxdumpParse(DiPhot):
             self.skip_mag_test(p1.mag, p2.mag)
 
     def reorder_dump(self):
+        self.logger.debug('Reordering stars...')
         for image in self.txdump.get_image_list():
             for point in self.txdump.get_image_points(image):
                 match_id = self.find_star(point, image)
                 s = None
                 if match_id:
+                    # self.logger.debug('Match found: {}'.format(match_id))
                     s = self.reordered.get_star(match_id)
                 else:
+                    # self.logger.debug('No match, creating new star'.format(match_id))
                     s = self.reordered.new_star()
                 p = s.add_point(point.image, point.date, point.x, point.y, point.mag, point.merr)
 
@@ -771,8 +785,12 @@ class TxdumpParse(DiPhot):
         image_index = -1
         if image in image_list:
             image_index = image_list.index(image)
-        return image_list[image_index+1:]
+        image_list = image_list[image_index+1:]
+        if 30 < len(image_list):
+            image_list = image_list[:image_index+30]
+        return image_list
 
+    @profile
     def find_star(self, point, image):
         image_list = self.get_reverse_image_list(image)
         if not image_list: return False
@@ -780,7 +798,7 @@ class TxdumpParse(DiPhot):
             if r_image == image: break
             for test_point in self.reordered.get_image_points(r_image):
                 s = self.reordered.get_star(test_point.star_id)
-                if self.match_point(point, test_point) and not s.get_point(image):
+                if self.match_point(point, test_point) and not s.has_point(image):
                     return test_point.star_id
         return self.manual_match(point, image)
 
@@ -795,7 +813,7 @@ class TxdumpParse(DiPhot):
             if r_image == image: break
             for test_point in self.reordered.get_image_points(r_image):
                 s = self.reordered.get_star(test_point.star_id)
-                if s.get_point(image): continue
+                if s.has_point(image): continue
                 if self.match_point_skip(point, test_point): continue
                 if self.assume == True: return test_point.star_id
                 print test_point,
@@ -810,10 +828,8 @@ class TxdumpParse(DiPhot):
         num_images = len(self.reordered.get_image_list())
         for star in self.reordered.stars:
             diff = num_images - len(star.points)
-            if diff == 0:
-                print "[Star {}] - Complete data set!".format(star.star_id)
-            elif self.debug:
-                print "[Star {}] - Incomplete data set: [missing {:5d} datapoints out of {}]".format(star.star_id, diff, num_images)
+            if self.debug:
+                self.logger.debug("[Star {}] - Data set: [missing {:5d} datapoints out of {}]".format(star.star_id, diff, num_images))
             if float( diff ) / float ( num_images ) * 100.0 < self.missing_tolerance_percent:
                 self.logger.info("Found star within tolerance: [ID: {:4d}]], missing [{:4d}] datapoint(s) out of [{}]!".format(star.star_id, diff, num_images))
                 self.final.stars.append(star)
@@ -824,10 +840,12 @@ class TxdumpParse(DiPhot):
     def find_target(self):
         if not self.target_x or not self.target_y: return False
         for star in self.reordered.stars:
-            if abs(star.points[0].x - self.target_x) < 10 and abs(star.points[0].y - self.target_y) < 10:
-                self.logger.info('Found target ID [{}]: ({}, {})'.format(star.star_id, star.points[0].x, star.points[0].y))
+            first_image = sorted(star.points.keys())[0]
+            first_point = star.points[first_image]
+            if abs(first_point.x - self.target_x) < 10 and abs(first_point.y - self.target_y) < 10:
+                self.logger.info('Found target ID [{}]: ({}, {})'.format(star.star_id, first_point.x, first_point.y))
                 return star.star_id
-        self.logger.info('Could not find any matching target star: ({}, {})'.format(star.points[0].x, star.points[0].y))
+        self.logger.info('Could not find any matching target star: ({}, {})'.format(first_point.x, first_point.y))
         return False
 
     def get_row(self, point):
@@ -846,7 +864,7 @@ class TxdumpParse(DiPhot):
         csvhandle = csv.writer(csvfile, delimiter=',')
         csvhandle.writerow(['id', 'image', 'date', 'x', 'y', 'mag', 'merr'])
         for star in self.reordered.stars:
-            for point in star.points:
+            for image, point in star.points.iteritems():
                 csvhandle.writerow(self.get_row(point))
 
     # def display_image(self):
@@ -1074,10 +1092,14 @@ class Datarun(object):
         return False
 
     def get_image_list(self):
-        return sorted(list(set([p.image for s in self.stars for p in s.points])))
+        return sorted(list(set([p.image for s in self.stars for p in s.points.values()])))
 
     def get_image_date_list(self):
-        return sorted(list(set([(p.image, p.date) for s in self.stars for p in s.points])), key=lambda p: p[0])
+        image_date_list = []
+        for s in self.stars:
+            for image in sorted(s.points.keys()):
+                image_date_list.append((image, s.points[image].date))
+        return sorted(list(set(image_date_list)))
 
     def get_image_date(self, image):
         return self.get_image_points(image)[0].date
@@ -1091,18 +1113,16 @@ class Datarun(object):
     def get_image_stars(self, image):
         stars = []
         for s in self.stars:
-            for p in s.points:
-                if p.image == image:
-                    stars.append(s)
-        return sorted(list(set(stars)), key=lambda s: s.star_id)
+            if s.has_point(image):
+                stars.append(s)
+        return sorted(stars, key=lambda s: s.star_id)
 
     def get_image_points(self, image):
         points = []
-        for s in self.get_image_stars(image):
-            for p in s.points:
-                if p.image == image:
-                    points.append(p)
-        return sorted(list(set(points)), key=lambda p: (p.star_id, p.y))
+        for s in self.stars:
+            if s.has_point(image):
+                points.append(s.get_point(image))
+        return sorted(points, key=lambda p: (p.star_id, p.y))
 
     def has_nan_point(self, image):
         points = self.get_image_points(image)
@@ -1154,18 +1174,21 @@ class Datarun(object):
     def sort_stars(self):
         self.stars = sorted(self.stars, key=lambda s: s.star_id)
         for s in self.stars:
-            s.points = sorted(s.points, key=lambda p: p.image)
+            new_points = OrderedDict()
+            for image in sorted(s.points.keys()):
+                new_points[image] = s.points[image]
+            s.points = new_points
 
 class Star(object):
     def __init__(self, star_id):
         self.star_id = int(star_id)
-        self.points = []
+        self.points = {}
 
     def __str__(self):
         return 'Star [{}], {} points'.format(self.star_id, len(self.points))
 
-    def add_point(self, image=None, date=None, x=None, y=None, mag=None, merr=None):
-        point = Point(
+    def add_point(self, image, date=None, x=None, y=None, mag=None, merr=None):
+        self.points[image] = Point(
             star_id=self.star_id,
             image=image,
             date=date,
@@ -1174,13 +1197,15 @@ class Star(object):
             mag=mag,
             merr=merr
         )
-        self.points.append(point)
-        return point
+        return self.points[image]
 
     def get_point(self, image):
-        for p in self.points:
-            if p.image == image: return p
+        if self.points.has_key(image):
+            return self.points[image]
         return False
+
+    def has_point(self, image):
+        return self.points.has_key(image)
 
 class Point(object):
     def __init__(self, star_id=None, image=None, date=None, x=None , y=None, mag=None, merr=None):
