@@ -9,8 +9,6 @@
 
 __version__ = '0.3'
 
-from profilehooks import profile
-
 import logging, tempfile, csv, sys, math
 import os, shutil, glob, argparse
 import yaml
@@ -790,7 +788,6 @@ class TxdumpParse(DiPhot):
             image_list = image_list[:image_index+30]
         return image_list
 
-    @profile
     def find_star(self, point, image):
         image_list = self.get_reverse_image_list(image)
         if not image_list: return False
