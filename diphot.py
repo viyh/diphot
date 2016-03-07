@@ -721,11 +721,13 @@ class TxdumpParse(DiPhot):
     def find_target(self):
         if not self.target_x or not self.target_y: return False
         for star in self.data:
-            x = star.data[0].x
-            y = star.data[0].y
+            x, y = star.data[0].x, star.data[0].y
+            if self.debug:
+                self.logger.debug('Star ID [{}] (x, y) in first image -> ({}, {})'.format(star.star_id, x, y))
             if abs(x - self.target_x) < 10 and abs(y - self.target_y) < 10:
                 self.logger.info('Found target ID [{}]: ({}, {})'.format(star.star_id, x, y))
                 return star.star_id
+        self.logger.info('Could not find target. Try adjusting the tolerence percentage and max/px thresholds.')
         return False
 
     def create_dump(self, dump_filename):
@@ -737,7 +739,6 @@ class TxdumpParse(DiPhot):
         dump = defaultdict(list)
         with open(dump_filename) as dumpfile:
             for line in dumpfile.readlines():
-                print line
                 image, id, x, y, time, mag, merr = line.split()
                 dump[(image, time)].append({'x': float(x), 'y': float(y), 'mag': mag, 'merr': merr})
         return OrderedDict(sorted(dump.items()))
@@ -749,8 +750,9 @@ class TxdumpParse(DiPhot):
                 star_id = self.find_similar_star(sorted_dump, star, image, time)
                 if not star_id:
                     star_id = self.get_new_star_id(sorted_dump)
-                    print 'New star found [{}]'.format(star_id)
-                    self.show_star(image, time, star)
+                    if self.debug:
+                        self.logger.debug('New star found [{}]'.format(star_id))
+                        self.show_star(image, time, star)
                 sorted_dump[star_id][(image, time)] = star
         return sorted_dump
 
@@ -800,14 +802,15 @@ class TxdumpParse(DiPhot):
             self.skip_mag_test(last_data, star)
 
     def show_star(self, image, time, star):
-        print('Image:\t{}'.format(image))
-        print('Time:\t{}'.format(time))
-        print('X:\t{}'.format(star['x']))
-        print('Y:\t{}'.format(star['y']))
-        print('Mag:\t{}'.format(star['mag']))
-        print('MErr:\t{}'.format(star['merr']))
+        self.logger.debug('\tImage:\t{}'.format(image))
+        self.logger.debug('\tTime:\t{}'.format(time))
+        self.logger.debug('\tX:\t{}'.format(star['x']))
+        self.logger.debug('\tY:\t{}'.format(star['y']))
+        self.logger.debug('\tMag:\t{}'.format(star['mag']))
+        self.logger.debug('\tMErr:\t{}'.format(star['merr']))
 
     def manual_match(self, sorted_dump, star, image, time):
+        if self.assume == False: return False
         print "\n\n" + "=" * 50
         self.show_star(image, time, star)
         print "=" * 50 + "\n"
@@ -815,9 +818,8 @@ class TxdumpParse(DiPhot):
             last_image, last_data = self.last(star_data)
             if last_image == (image, time): continue
             if self.match_last_skip(last_data, star): continue
-            if self.assume == False: continue
             if self.assume == True: return star_id
-            self.show_star(last_image[0], last_image[1], last_data)
+            self.show_star(last_image[0], last_image[1], last_data),
             print "\nIs this the above star (y/N)?",
             if raw_input().lower() == 'y':
                 print '\n'
@@ -877,12 +879,19 @@ class TxdumpParse(DiPhot):
         for star, values in dump.iteritems():
             star_images = set(values.keys())
             diff = set(images).difference(star_images)
-            if diff:
-                print "[Star {}] - Incomplete data set: [missing {} datapoints out of {}]".format(star, len(diff), len(images))
-            else:
-                print "[Star {}] - Complete data set!".format(star)
-            if float( len(diff) ) / float ( len(images) ) * 100.0 < self.missing_tolerance_percent:
-                print "Saving star [{}]!".format(star)
+            percent_diff = float( len(diff) ) / float ( len(images) ) * 100.0
+            if self.debug:
+                self.logger.debug(
+                    '[Star {:3d}] - data set: [missing {:4d} datapoints out of {:4d}] [ {:5.2f}% ]'.format(
+                        star, len(diff), len(images), percent_diff
+                    )
+                )
+            if percent_diff < self.missing_tolerance_percent:
+                self.logger.info(
+                    'Star ID [{:3d}] is within tolerence. [missing {:4d} datapoint(s) out of {:4d}] [ {:5.2f}% ]'.format(
+                        star, len(diff), len(images), percent_diff
+                    )
+                )
                 final_dump[star] = values
         return final_dump
 
@@ -919,8 +928,6 @@ class LightCurve(DiPhot):
         DiPhot.__init__(self, 'lightcurve')
         self.raw_data = data
         self.points = {}
-        self.filtered_points = {}
-        self.binned_points = {}
         if not hasattr(self, 'target_id') or not self.target_id:
             self.target_id = target_id
         if not hasattr(self, 'ignore_ids') or not self.ignore_ids:
@@ -953,6 +960,12 @@ class LightCurve(DiPhot):
         return np.array(zip(x, y), dtype=[('x',float),('y',float)])
 
     def remove_ignored(self):
+        if self.target_id in self.ignore_ids:
+            self.logger.info(
+                'Target star ID [{}] was in ignore list. '.format(self.target_id) +
+                'Target cannot be ignored, removing from ignore list.'
+            )
+            self.ignore_ids.remove(self.target_id)
         self.raw_data = [s for s in self.raw_data if s.star_id not in self.ignore_ids]
 
     def separate_stars(self):
@@ -1009,7 +1022,7 @@ class LightCurve(DiPhot):
         binned = {}
         for i in xrange(0, len(self.points), self.lightcurve_bin):
             chunk = self.points.keys()[i:i + self.lightcurve_bin]
-            chunk_date = self.avg(chunk)
+            chunk_date = chunk[0]
             mag = self.med([self.points[date]['mag'] for date in chunk])
             merr = self.quad([self.points[date]['merr'] for date in chunk])
             binned[chunk_date] = {'mag': mag, 'merr': merr}
@@ -1057,17 +1070,19 @@ class LightCurve(DiPhot):
         plt.show()
 
     def create_diff_plot(self):
-        fig, (ax1, ax2) = plt.subplots(1, 2)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16,4))
         x = self.points.keys()
         y1 = [v['mag'] for v in self.points.values()]
         y2 = [v['merr'] for v in self.points.values()]
         self.create_plot(ax1, x, y1, y2)
         fig.autofmt_xdate()
-        ax2.hexbin(x, y1, gridsize=100, bins=20)
+        ax2.hexbin(x, y1, gridsize=100, bins=None)
         time_fmt = dates.DateFormatter('%H:%M:%S')
         ax2.xaxis.set_major_formatter(time_fmt)
         ax2.set_xlim([min(x), max(x)])
-        ax2.set_ylim([min(y1) - 0.05, max(y1) + 0.05])
+        ax2.set_ylim([min(y1), max(y1)])
+        ax1.set_aspect(0.5)
+        ax2.set_aspect(0.5)
         plt.show()
 
     def get_type_filelist(self, filetype):

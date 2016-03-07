@@ -4,6 +4,9 @@ To Do:
 * Add "skip" functionality for reduction (skip-flat, skip-zero, etc.)
 * Display average delta star comps
 * Rework data point/star objects
+* Create target/comp image with indicators
+* Better exception handling (key error, etc)
+* Allow for sudden large jumps in frame for slewing
 
 Done:
 
