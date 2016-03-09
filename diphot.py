@@ -53,10 +53,8 @@ class DiPhot():
         os.environ.get('iraf','/usr/local/iraf')
         os.environ.get('IRAFARCH','linux64')
         self.name = name
-        self.config = self.init_parse_config()
-        if hasattr(self.config['diphot'], 'debug'):
-            self.debug = self.config['diphot']['debug']
         self.init_parse_args()
+        self.config = self.init_parse_config()
         self.set_attributes()
         self.raw_dir = os.path.expanduser(self.raw_dir.rstrip('/'))
         self.output_dir = os.path.expanduser(self.output_dir.rstrip('/'))
@@ -73,9 +71,11 @@ class DiPhot():
     def init_parse_config(self):
         config = yaml.safe_load(open('diphot_defaults.yml'))
         custom_config = {}
-        if os.path.exists('diphot.yml'):
-            custom_config = yaml.safe_load(open('diphot.yml'))
+        if os.path.exists(self.config_file):
+            custom_config = yaml.safe_load(open(self.config_file))
         config = self.config_merge(custom_config, config)
+        if config['diphot'].has_key('debug') and not self.debug:
+            self.debug = config['diphot']['debug']
         return config
 
     def config_merge(self, custom, default):
@@ -105,6 +105,7 @@ class DiPhot():
         self.parser.add_argument('--debug', action='store_true', help='turn on debug messages')
         self.parser.add_argument('--ignore_id', '-i', dest='ignore_ids', type=int, action='append', help='star to ignore')
         self.parser.add_argument('--comp', action='store_true', help='show individual star graphs')
+        self.parser.add_argument('--config_file', '-c', dest='config_file', default='diphot.yml', help='show individual star graphs')
         self.parser.parse_known_args(namespace=self)
 
     def cleanup_tmp(self, target_dir):
