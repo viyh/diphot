@@ -2,7 +2,7 @@
 
 https://github.com/viyh/diphot
 
-Scripts to simplify differential photometry data reduction using PyRAF.
+Simple differential photometry processing using PyRAF.
 
 # Overview
 
