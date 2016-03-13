@@ -8,52 +8,56 @@
 #####
 
 diphot:
-    # turn debugging mode on
-    debug: False
     # destination directory for processed and master FITS files
     output_dir: output
     # source directory of raw FITS files
     raw_dir: input
+    # approximate X pixel of target in first object image
+    target_x: ~
+    # approximate Y pixel of target in first object image
+    target_y: ~
+
     # display curve of growth graphs
     display_cog: True
     # filename where curve of growth graph will be written
     cog_graph_file: ~
     # display PSF contour graphs
     display_psf: True
-    # filename where psf graph will be written
+    # filename where PSF graph will be written
     psf_graph_file: ~
     # FITS filename to use for curve of growth graph (default: uses FITS file halfway through data set)
     cog_image: ~
+
     # fwhm override (default: this is calculated automatically)
     fwhm: ~
     # aperture for photometry override (default: this is calculated automatically)
     aperture: ~
-    # max pixel shift in X or Y direction between a given star in two images to consider the same star
+
+    # max pixel shift in X or Y for a star between two images to be considered the same star
     px_threshold: 50
-    # max magnitude delta between a given star in two images to consider the same star
+    # max magnitude delta for a star between two images to be considered the same star
     mag_threshold: 0.5
-    # min pixel shift in X or Y direction between a given star in two images to not consider the same star
+    # min pixel shift in X or Y for a star between two images to not be considered the same star
     skip_px_threshold: 75
-    # min magnitude delta between a given star in two images to not consider the same star
+    # min magnitude delta for a star between two images to not be considered the same star
     skip_mag_threshold: 1.0
     # assume stars more than mag/px thesholds but less than skip threshold are the same star
     assume: False
     # percentage of missing data points allowed to include a given star in light curve
     missing_tolerance_percent: 10
+    # data binning by grouping this many data points together in light curve
+    lightcurve_bin: 1
+    # standard deviation threshold to remove outlier data points
+    lightcurve_sigma: 3.5
+    # list of star IDs to ignore, example: [10, 12, 33]
+    ignore: []
+    # “comparison mode” - show individual comparison star graphs
+    comp: False
+
     # file types to process
     filetypes: [zero, dark, flat, object]
-    # approximate X pixel of target in first object image
-    target_x: ~
-    # approximate Y pixel of target in first object image
-    target_y: ~
-    # bin by grouping this many data points together in light curve
-    lightcurve_bin: 1
-    # stddev threshold to remove outlier data points
-    lightcurve_sigma: 3.5
-    # list of star IDs to ignore
-    ignore: []
-    # show invidividual comparison star graphs
-    comp: False
+    # turn debugging mode on
+    debug: False
 
 #####
 ##### PyRAF Settings

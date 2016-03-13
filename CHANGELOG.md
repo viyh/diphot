@@ -7,6 +7,7 @@
 * Create target/comp image with indicators
 * Better exception handling (key error, etc)
 * Allow for sudden large jumps in frame for slewing
+* Reletive positions of each star in the image, align stars based on this
 
 # Changelog
 

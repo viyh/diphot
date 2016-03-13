@@ -99,4 +99,3 @@ This will create coordinate and magnitude files for each image in the following 
 
 ## lightcurve.py
 This uses the txdump and creates the differential light curve. Additionally, it can create a TSV file which can be uploaded to the [TRESCA database](http://var2.astro.cz/EN/tresca/index.php). If a target is not specified or cannot be found, the graphs for the individual stars are shown instead.
-
