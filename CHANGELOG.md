@@ -1,4 +1,4 @@
-To Do:
+# To Do
 
 * Find out if greater precision for merr is possible
 * Add "skip" functionality for reduction (skip-flat, skip-zero, etc.)
@@ -8,9 +8,9 @@ To Do:
 * Better exception handling (key error, etc)
 * Allow for sudden large jumps in frame for slewing
 
-Done:
+# Changelog
 
-v0.2
+## v0.2.1
 * Fix trailing slash failures on inputted directory names
 * Implement configuration file for settings
 * Fix duplicate log messages from running multiple operations
@@ -23,6 +23,6 @@ v0.2
 * Fix argument parser
 * Document config settings in comments
 
-v0.1
+## v0.1.0
 * Implement "use_new_imt = no" workaround for IRAF bug
 * Fix broken dir creation when type dirs already exist

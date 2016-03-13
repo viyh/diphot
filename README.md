@@ -79,6 +79,8 @@ This will organize the FITS files into the following directory structure in the 
             master FITS files that are created for zero, dark, and flat images
         tmp/
             temporary directory used by these scripts
+        logs/
+            log files for DiPhot
 
 The object directory contains the final object science images with the master zero, dark, and flat subtracted.
 
@@ -88,5 +90,13 @@ This calculates the FWHM and aperture with the maximum signal-to-noise ratio. An
 ## photometry.py
 This runs the star finding algoritm, calculates the instrumental magnitude for each found star, and creates the txdump file containing these values. Since the star IDs that PyRAF assigns vary for a given star from image to image, this code attempts to identify the stars from image to image across the entire data set and assign them consistent IDs.
 
+This will create coordinate and magnitude files for each image in the following locations:
+    /<OUTPUT DIRECTORY>/
+        coord/
+            coordinate files for each object image which contains the list of stars found in each image
+        mag/
+            the magnitude files which contain the instrumental magnitudes for each star that was found in each image
+
 ## lightcurve.py
-This uses the txdump and creates the differential light curve. Additionally, it can create a TSV file which can be uploaded to the [TRESCA database](http://var2.astro.cz/EN/tresca/index.php).
+This uses the txdump and creates the differential light curve. Additionally, it can create a TSV file which can be uploaded to the [TRESCA database](http://var2.astro.cz/EN/tresca/index.php). If a target is not specified or cannot be found, the graphs for the individual stars are shown instead.
+

@@ -7,7 +7,7 @@
 # Library of common functions
 #
 
-__version__ = '0.2'
+__version__ = '0.2.1'
 
 import logging, tempfile, csv, sys, math
 import os, shutil, glob, argparse
