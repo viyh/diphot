@@ -21,6 +21,7 @@ Simple differential photometry processing using PyRAF.
 
 These scripts can be used to reduce data for differential photometry. The general order of usage is as follows:
 
+* diphot.py - The main library.
 * process.py - Fully automatic processing of your FITS images to a light curve. This includes all of the steps from the other scripts below.
 * reduce.py - Organizes and creates master zero, dark, and flat images, and removes these from object images.
 * curveofgrowth.py - Create a curve of growth which helps you choose the currect aperture to use for photometry and gives an idea of the SNR of the object images.
