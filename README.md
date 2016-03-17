@@ -33,19 +33,19 @@ These scripts can be used to reduce data for differential photometry. The genera
 
 * Get the code:
 
-        `git clone https://github.com/viyh/diphot.git`
+        git clone https://github.com/viyh/diphot.git
 
 * Install the latest numpy library locally:
 
-        `/usr/local/bin/pip2.7 install --user numpy --upgrade`
+        /usr/local/bin/pip2.7 install --user numpy --upgrade
 
 * Install the latest matplotlib library locally:
 
-        `/usr/local/bin/pip2.7 install --user matplotlib --upgrade`
+        /usr/local/bin/pip2.7 install --user matplotlib --upgrade
 
 * Add the local libraries to your local python search path. Edit your ~/.bash_profile and add the following:
 
-        `export PYTHONPATH=~/.local/lib/python2.7/site-packages:$PYTHONPATH`
+        export PYTHONPATH=~/.local/lib/python2.7/site-packages:$PYTHONPATH
 
 If you are using a remote server, you will need to use SSH forwarding (`-Y`) when SSHing into the server in order to display images.
 
@@ -53,6 +53,8 @@ If you are using a remote server, you will need to use SSH forwarding (`-Y`) whe
 ## Quick Start ##
 
 DiPhot can be run in a completely automatic mode where it will process raw FITS files from start to light curve.
+
+From within the cloned diphot directory:
 
 * Setup your diphot.yml file (copy the diphot_sample.yml and start with that). Make sure the path to your raw FITS files and the output directory are correct. You will need to specify the `target_x` and `target_y` of your target star in the first object FITS image in order to generate a light curve. Add any other settings that you want.
 
@@ -129,6 +131,8 @@ This calculates the FWHM and aperture with the maximum signal-to-noise ratio. An
 <div id='id-photometry'/>
 ## photometry.py
 This runs the star finding algoritm, calculates the instrumental magnitude for each found star, and creates the txdump file containing these values. Since the star IDs that PyRAF assigns vary for a given star from image to image, this code attempts to identify the stars from image to image across the entire data set and assign them consistent IDs.
+
+**If you are running this script individually, the "fwhm" and "aperture" settings must be set in your config file.**
 
 This will create coordinate and magnitude files for each image in the following locations:
     /<OUTPUT DIRECTORY>/

@@ -1,5 +1,8 @@
 # Installation #
 
+* Get the code:
+`git clone https://github.com/viyh/diphot.git`
+
 * Install the latest numpy library locally:
 `/usr/local/bin/pip2.7 install --user numpy --upgrade`
 

@@ -558,7 +558,7 @@ class CurveOfGrowth(DiPhot):
 
     def generate_psf_graphs(self, X, Y, Z, radius):
         plt.rcParams.update({'font.size': 10})
-        fig, ax = plt.subplots(1, 3, figsize=(9, 3))
+        fig, ax = plt.subplots(1, 3, figsize=(15, 5))
         cm = plt.get_cmap("jet")
         stride = radius * 0.25
         ax[0].contourf(Y, Z, X, zdir='x', cstride=stride, rstride=stride, offset=self.target_x - radius, cmap=cm, hold='on')
@@ -572,12 +572,12 @@ class CurveOfGrowth(DiPhot):
         ax[2].set_ylabel('y')
 
     def create_psf_plot(self, filename, radius=50):
-        if not self.display_psf or self.psf_graph_file: return
+        if not self.display_psf and not self.psf_graph_file: return
         self.logger.info('Creating contour PSF plots (this can take a minute)...')
         X, Y, Z = self.generate_psf_data(filename, radius)
         self.logger.debug('Generating graphs...')
         self.generate_psf_graphs(X, Y, Z, radius)
-        if self.display_psf:
+        if self.display_psf and not self.psf_graph_file:
             plt.show()
         if self.psf_graph_file:
             self.logger.info('Creating curve of growth graph image: {}'.format(self.psf_graph_file))
@@ -594,7 +594,8 @@ class CurveOfGrowth(DiPhot):
         return x_smooth, y1_smooth, y2_smooth
 
     def generate_cog_graph(self, x_smooth, y1_smooth, y2_smooth):
-        fig, ax1 = plt.subplots()
+        # fig, ax1 = plt.subplots()
+        fig, ax1 = plt.subplots(figsize=(12, 10))
         ax1.plot(x_smooth, y1_smooth, 'b-', lw=2)
         ax1.set_xlabel('Aperture (px)')
         ax1.set_ylabel('SNR', color='b')
@@ -608,12 +609,12 @@ class CurveOfGrowth(DiPhot):
         plt.subplots_adjust(bottom=.13, left=.13, right=.85, top=.95)
 
     def create_cog_plot(self):
-        if not self.display_cog or self.cog_graph_file: return
+        if not self.display_cog and not self.cog_graph_file: return
         self.logger.info('Creating curve of growth graph...')
         x_smooth, y1_smooth, y2_smooth = self.generate_cog_data()
         self.logger.debug('Generating graphs...')
         self.generate_cog_graph(x_smooth, y1_smooth, y2_smooth)
-        if self.display_cog:
+        if self.display_cog and not self.cog_graph_file:
             plt.show()
         if self.cog_graph_file:
             self.logger.info('Creating curve of growth graph image: {}'.format(self.cog_graph_file))
