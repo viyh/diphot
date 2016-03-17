@@ -41,7 +41,7 @@ diphot:
     skip_px_threshold: 75
     # min magnitude delta for a star between two images to not be considered the same star
     skip_mag_threshold: 1.0
-    # assume stars more than mag/px thesholds but less than skip threshold are the same star
+    # assume stars more than mag/px thresholds but less than skip threshold are the same star
     assume: False
     # percentage of missing data points allowed to include a given star in light curve
     missing_tolerance_percent: 10
